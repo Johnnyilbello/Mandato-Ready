@@ -1,0 +1,8 @@
+{
+  "name": "Mandato Ready - Agency Workspace",
+  "description": "Radically simple operating workspace and guided transaction flow for real estate agencies.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
