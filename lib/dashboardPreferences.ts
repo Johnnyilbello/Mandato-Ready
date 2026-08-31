@@ -13,13 +13,29 @@ export const RECOMMENDED_DASHBOARD_WIDGETS: DashboardWidgetConfig[] = [
 ];
 
 const CORE_WIDGET_IDS = new Set<DashboardWidgetId>(['da_fare_oggi', 'appuntamenti']);
+const RECOMMENDED_BY_ID = new Map(RECOMMENDED_DASHBOARD_WIDGETS.map((widget) => [widget.id, widget]));
+
+const forceCoreState = (widget: DashboardWidgetConfig): DashboardWidgetConfig =>
+  CORE_WIDGET_IDS.has(widget.id) ? { ...widget, enabled: true, isCore: true } : widget;
 
 export const normalizeDashboardWidgets = (widgets: DashboardWidgetConfig[]): DashboardWidgetConfig[] => {
-  const byId = new Map(widgets.map((widget) => [widget.id, widget]));
-  return RECOMMENDED_DASHBOARD_WIDGETS.map((definition) => {
-    const merged = { ...definition, ...(byId.get(definition.id) || {}) };
-    return CORE_WIDGET_IDS.has(merged.id) ? { ...merged, enabled: true, isCore: true } : merged;
-  });
+  const seen = new Set<DashboardWidgetId>();
+  const normalized: DashboardWidgetConfig[] = [];
+
+  for (const saved of widgets) {
+    if (seen.has(saved.id)) continue;
+    const definition = RECOMMENDED_BY_ID.get(saved.id);
+    if (!definition) continue;
+    seen.add(saved.id);
+    normalized.push(forceCoreState({ ...definition, ...saved }));
+  }
+
+  for (const definition of RECOMMENDED_DASHBOARD_WIDGETS) {
+    if (seen.has(definition.id)) continue;
+    normalized.push(forceCoreState({ ...definition }));
+  }
+
+  return normalized;
 };
 
 export const toggleDashboardWidget = (
