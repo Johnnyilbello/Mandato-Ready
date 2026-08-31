@@ -1,93 +1,135 @@
-import React, { useState } from 'react';
+'use client';
+
+import React, { useMemo, useState } from 'react';
 import { useApp } from '@/context/AppContext';
+import type { AmlDossier } from '@/lib/types';
+
+type AmlStep = 1 | 2 | 3 | 4 | 5 | 6;
+type SectionKey = keyof AmlDossier['sections'];
+
+const SECTION_ORDER: SectionKey[] = [
+  'soggetti',
+  'identificazione',
+  'relazioni',
+  'operazione',
+  'origineFondi',
+  'valutazione',
+];
+
+const getResumeStep = (dossier?: AmlDossier): AmlStep => {
+  if (!dossier) return 1;
+  const firstIncompleteIndex = SECTION_ORDER.findIndex((section) => !dossier.sections[section]);
+  if (firstIncompleteIndex === -1) return 6;
+  return (firstIncompleteIndex + 1) as AmlStep;
+};
 
 export const AmlWizardView: React.FC = () => {
   const {
     selectedPracticeId,
     getPracticeById,
     getClientById,
+    getPropertyById,
     getAmlDossierByPracticeId,
     updateAmlDossier,
     updatePractice,
     setActiveTab,
     addPracticeNote,
+    agencyProfile,
   } = useApp();
 
   const practice = getPracticeById(selectedPracticeId || '');
   const dossier = getAmlDossierByPracticeId(practice?.id || '');
+  const client = getClientById(practice?.clientId);
+  const property = getPropertyById(practice?.propertyId);
 
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(1);
-  
-  const initialSections = dossier?.sections || {
-    soggetti: false,
-    identificazione: false,
-    relazioni: false,
-    operazione: false,
-    origineFondi: false,
-    valutazione: false
-  };
+  const initialSections = useMemo<AmlDossier['sections']>(
+    () =>
+      dossier?.sections || {
+        soggetti: false,
+        identificazione: false,
+        relazioni: false,
+        operazione: false,
+        origineFondi: false,
+        valutazione: false,
+      },
+    [dossier?.sections]
+  );
 
-  const [sections, setSections] = useState(initialSections);
-  const [riskLevel, setRiskLevel] = useState(dossier?.riskAssessment?.level || '');
+  const [currentStep, setCurrentStep] = useState<AmlStep>(() => getResumeStep(dossier));
+  const [sections, setSections] = useState<AmlDossier['sections']>(initialSections);
+  const [riskLevel, setRiskLevel] = useState<AmlDossier['riskAssessment']['level']>(
+    dossier?.riskAssessment?.level || ''
+  );
   const [riskNotes, setRiskNotes] = useState(dossier?.riskAssessment?.notes || '');
 
   if (!practice) {
     return <div className="p-12 text-center text-[#76777b]">Pratica non trovata.</div>;
   }
 
-  const handleNext = () => {
-    if (currentStep < 6) setCurrentStep((prev) => (prev + 1) as any);
-  };
+  const nextStep = () =>
+    setCurrentStep((previous) => (previous < 6 ? ((previous + 1) as AmlStep) : previous));
 
-  const handleBack = () => {
-    if (currentStep > 1) setCurrentStep((prev) => (prev - 1) as any);
+  const previousStep = () => {
+    if (currentStep > 1) setCurrentStep((previous) => ((previous - 1) as AmlStep));
     else setActiveTab('pratiche');
   };
 
-  const handleSaveProgress = (completedSection: keyof typeof sections) => {
-    const updatedSections = { ...sections, [completedSection]: true };
+  const saveSectionAndContinue = (section: SectionKey) => {
+    const updatedSections = { ...sections, [section]: true };
     setSections(updatedSections);
-    
     updateAmlDossier({
       practiceId: practice.id,
       sections: updatedSections,
-      status: 'In corso'
+      status: 'In corso',
     });
-    
-    handleNext();
+    updatePractice(practice.id, { amlStatus: 'in_corso' });
+    nextStep();
   };
 
   const handleComplete = () => {
+    if (!riskLevel) return;
+    const completedSections = { ...sections, valutazione: true };
     updateAmlDossier({
       practiceId: practice.id,
-      sections: { ...sections, valutazione: true },
+      sections: completedSections,
       riskAssessment: {
         level: riskLevel,
-        notes: riskNotes,
-        date: new Date().toISOString()
+        notes: riskNotes.trim(),
+        date: new Date().toISOString(),
+        operatorName: agencyProfile.agentName,
       },
-      status: 'Completato operativamente'
+      status: 'Completato operativamente',
     });
-    updatePractice(practice.id, { 
+    updatePractice(practice.id, {
       amlStatus: 'completato',
       amlWorkflow: {
         clienteIdentificato: true,
         informazioniRaccolte: true,
         titolareEffettivoVerificato: true,
-        fascicoloCompleto: true
-      }
+        fascicoloCompleto: true,
+      },
     });
-    addPracticeNote(practice.id, 'Fascicolo Antiriciclaggio completato e valutazione inserita');
+    addPracticeNote(
+      practice.id,
+      `Fascicolo antiriciclaggio completato operativamente. Valutazione ${riskLevel} inserita dall’operatore ${agencyProfile.agentName}.`
+    );
     setActiveTab('pratiche');
   };
 
-  const client = getClientById(practice.clientId);
+  const clientName = client?.entityType === 'azienda'
+    ? client.companyName || `${client.firstName} ${client.lastName}`
+    : `${client?.firstName || ''} ${client?.lastName || ''}`.trim();
 
   return (
-    <div className="max-w-[800px] mx-auto px-6 py-12 font-sans pb-24">
-      <div className="mb-8 flex items-center justify-between">
+    <div className="max-w-[820px] mx-auto px-4 sm:px-6 py-8 sm:py-12 font-sans pb-24 overflow-x-hidden">
+      <div className="mb-6 p-4 border border-[#d8a47f] bg-[#fffaf5] text-[12px] text-[#5f3a20] leading-relaxed">
+        <strong>Supporto operativo, non certificazione:</strong> Mandato Ready organizza il fascicolo e conserva la valutazione
+        scelta dall&apos;operatore. Non determina automaticamente il rischio AML e non certifica la conformità normativa.
+      </div>
+
+      <div className="mb-8 flex items-center justify-between gap-3">
         <button
-          onClick={handleBack}
+          onClick={previousStep}
           className="text-[12px] font-bold uppercase tracking-wider text-[#76777b] hover:text-[#1a1c1a] flex items-center gap-1 transition-colors"
         >
           <span className="material-symbols-outlined text-[16px]">arrow_back</span>
@@ -98,238 +140,188 @@ export const AmlWizardView: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex items-center gap-2 mb-8">
+      <div className="flex items-center gap-2 mb-8" aria-label={`Passaggio AML ${currentStep} di 6`}>
         {[1, 2, 3, 4, 5, 6].map((step) => (
-          <div
-            key={step}
-            className={`h-1.5 flex-1 rounded-full ${
-              step <= currentStep ? 'bg-[#1a1c1a]' : 'bg-[#e6e5e8]'
-            }`}
-          />
+          <div key={step} className={`h-1.5 flex-1 ${step <= currentStep ? 'bg-[#1a1c1a]' : 'bg-[#e6e5e8]'}`} />
         ))}
       </div>
 
       {currentStep === 1 && (
-        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <h1 className="text-[32px] font-serif-display font-bold text-[#1a1c1a] mb-2">Soggetti coinvolti</h1>
-          <p className="text-[14px] text-[#76777b] mb-8">Definisci il ruolo di ogni soggetto nell&apos;operazione.</p>
-          
-          <div className="space-y-4">
-            <div className="p-4 border border-[#c7c6ca] bg-[#faf9f6]">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[14px] font-bold text-[#1a1c1a]">{client?.firstName} {client?.lastName}</span>
-                <span className="text-[10px] uppercase font-bold text-[#a14009] px-2 py-1 bg-[#ffdbcd] border border-[#a14009]">
-                  Già in anagrafica
-                </span>
+        <section>
+          <h1 className="text-[30px] sm:text-[32px] font-serif-display font-bold text-[#1a1c1a] mb-2">Soggetti coinvolti</h1>
+          <p className="text-[14px] text-[#76777b] mb-8">Il cliente viene riutilizzato dalla pratica, senza duplicare l&apos;anagrafica.</p>
+          <div className="p-5 border border-[#c7c6ca] bg-[#faf9f6]">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <div className="text-[14px] font-bold text-[#1a1c1a]">{clientName || 'Cliente da completare'}</div>
+                <div className="text-[12px] text-[#76777b] break-all">{client?.email || 'Email non presente'} · {client?.phone || 'Telefono non presente'}</div>
               </div>
-              <div className="text-[13px] text-[#76777b]">
-                Seleziona i ruoli AML per questo soggetto:
-              </div>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <label className="flex items-center gap-2 text-[13px] border border-[#c7c6ca] px-3 py-1 bg-white cursor-pointer hover:bg-[#f4f3f1]">
-                  <input type="checkbox" defaultChecked /> Cliente
-                </label>
-                <label className="flex items-center gap-2 text-[13px] border border-[#c7c6ca] px-3 py-1 bg-white cursor-pointer hover:bg-[#f4f3f1]">
-                  <input type="checkbox" defaultChecked /> Esecutore
-                </label>
-                <label className="flex items-center gap-2 text-[13px] border border-[#c7c6ca] px-3 py-1 bg-white cursor-pointer hover:bg-[#f4f3f1]">
-                  <input type="checkbox" defaultChecked /> Titolare Effettivo
-                </label>
-              </div>
+              <span className="text-[10px] uppercase font-bold text-[#a14009] px-2 py-1 bg-[#ffdbcd] border border-[#a14009] self-start sm:self-center">
+                Anagrafica condivisa
+              </span>
             </div>
-            
-            <button className="w-full p-4 border border-dashed border-[#c7c6ca] text-[#76777b] hover:text-[#1a1c1a] hover:border-[#1a1c1a] transition-colors text-[13px] font-bold uppercase tracking-wider flex items-center justify-center gap-2">
-              <span className="material-symbols-outlined text-[18px]">add</span>
-              Aggiungi Altro Soggetto
-            </button>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {['Cliente', 'Esecutore', 'Titolare effettivo'].map((role) => (
+                <span key={role} className="text-[12px] border border-[#c7c6ca] px-3 py-1.5 bg-white">{role}</span>
+              ))}
+            </div>
           </div>
-          
+          <button
+            type="button"
+            disabled
+            title="La gestione AML multi-soggetto strutturata è prevista in una fase successiva."
+            className="mt-4 w-full p-4 border border-dashed border-[#c7c6ca] text-[#9a9a9a] bg-[#f7f6f4] text-[12px] font-bold uppercase tracking-wider cursor-not-allowed"
+          >
+            + Altro soggetto — non disponibile in Phase 1
+          </button>
           <div className="mt-12 flex justify-end">
-            <button onClick={() => handleSaveProgress('soggetti')} className="bg-[#1a1c1a] text-white px-8 py-3 text-[12px] uppercase font-bold tracking-widest hover:bg-[#333533] transition-colors">
-              Conferma e Continua
-            </button>
+            <button onClick={() => saveSectionAndContinue('soggetti')} className="bg-[#1a1c1a] text-white px-8 py-3 text-[12px] uppercase font-bold tracking-widest hover:bg-[#333533]">Conferma e continua</button>
           </div>
-        </div>
+        </section>
       )}
 
       {currentStep === 2 && (
-        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <h1 className="text-[32px] font-serif-display font-bold text-[#1a1c1a] mb-2">Dati di identificazione</h1>
-          <p className="text-[14px] text-[#76777b] mb-8">Completa i dati mancanti per l&apos;identificazione.</p>
-          
-          <div className="space-y-6">
-            <div className="p-6 border border-[#c7c6ca] bg-[#faf9f6]">
-              <h3 className="text-[14px] font-bold text-[#1a1c1a] mb-4 border-b border-[#c7c6ca] pb-2">{client?.firstName} {client?.lastName}</h3>
-              
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6">
-                <div>
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-[#76777b] block mb-1">Codice Fiscale</span>
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-[#1a1c1a]">{client?.fiscalCode || 'RSSMRA80A01H501U'}</span>
-                    <span className="text-[10px] uppercase font-bold text-[#1b5e20] bg-[#e8f5e9] px-2 py-0.5 border border-[#a5d6a7]">Disponibile</span>
-                  </div>
-                </div>
-                <div>
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-[#76777b] block mb-1">Residenza</span>
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-[#1a1c1a]">{client?.city}</span>
-                    <span className="text-[10px] uppercase font-bold text-[#1b5e20] bg-[#e8f5e9] px-2 py-0.5 border border-[#a5d6a7]">Disponibile</span>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-4 border-t border-[#c7c6ca]">
-                <div>
-                  <label className="block text-[11px] uppercase tracking-wider font-bold text-[#1a1c1a] mb-2">Tipo Documento ID</label>
-                  <select className="w-full p-2 border border-[#c7c6ca] bg-white">
-                    <option>Carta di Identità</option>
-                    <option>Passaporto</option>
-                    <option>Patente di Guida</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[11px] uppercase tracking-wider font-bold text-[#1a1c1a] mb-2">Numero Documento</label>
-                  <input type="text" className="w-full p-2 border border-[#c7c6ca] bg-white" placeholder="Es. CA12345XX" />
-                </div>
-              </div>
+        <section>
+          <h1 className="text-[30px] sm:text-[32px] font-serif-display font-bold text-[#1a1c1a] mb-2">Dati di identificazione</h1>
+          <p className="text-[14px] text-[#76777b] mb-8">Verifica i dati disponibili nella scheda cliente. I dati mancanti si completano nell&apos;anagrafica condivisa.</p>
+          <div className="p-5 sm:p-6 border border-[#c7c6ca] bg-[#faf9f6] space-y-5">
+            <div>
+              <span className="text-[10px] uppercase tracking-widest font-bold text-[#76777b]">Codice fiscale</span>
+              <p className="font-mono text-[13px] text-[#1a1c1a] break-all">{client?.fiscalCode || 'Non presente'}</p>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase tracking-widest font-bold text-[#76777b]">Residenza / sede</span>
+              <p className="text-[13px] text-[#1a1c1a]">
+                {client?.residence?.address || client?.address || 'Indirizzo non presente'}
+                {(client?.residence?.municipality || client?.city) ? ` · ${client?.residence?.municipality || client?.city}` : ''}
+              </p>
+            </div>
+            <div className="pt-4 border-t border-[#c7c6ca]">
+              <span className="text-[10px] uppercase tracking-widest font-bold text-[#76777b]">Documento</span>
+              <p className="text-[13px] text-[#1a1c1a]">
+                {client?.identityDocument?.type || 'Tipo da completare'} · {client?.identityDocument?.number || 'numero da completare'}
+              </p>
             </div>
           </div>
-          
           <div className="mt-12 flex justify-end">
-            <button onClick={() => handleSaveProgress('identificazione')} className="bg-[#1a1c1a] text-white px-8 py-3 text-[12px] uppercase font-bold tracking-widest hover:bg-[#333533] transition-colors">
-              Continua
-            </button>
+            <button onClick={() => saveSectionAndContinue('identificazione')} className="bg-[#1a1c1a] text-white px-8 py-3 text-[12px] uppercase font-bold tracking-widest hover:bg-[#333533]">Continua</button>
           </div>
-        </div>
+        </section>
       )}
 
       {currentStep === 3 && (
-        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <h1 className="text-[32px] font-serif-display font-bold text-[#1a1c1a] mb-2">Relazioni e Rappresentanza</h1>
-          <p className="text-[14px] text-[#76777b] mb-8">Specifica eventuali deleghe, procure o legami societari.</p>
-          
-          <div className="p-6 border border-[#c7c6ca] bg-[#faf9f6] text-center space-y-4">
+        <section>
+          <h1 className="text-[30px] sm:text-[32px] font-serif-display font-bold text-[#1a1c1a] mb-2">Relazioni e rappresentanza</h1>
+          <p className="text-[14px] text-[#76777b] mb-8">Registra operativamente se il soggetto agisce per conto proprio o tramite rappresentanza.</p>
+          <div className="p-5 sm:p-6 border border-[#c7c6ca] bg-[#faf9f6] space-y-4">
             <p className="text-[14px] text-[#1a1c1a]">Il cliente agisce per conto proprio?</p>
-            <div className="flex items-center justify-center gap-4">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="radio" name="rappr" defaultChecked /> Sì
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="radio" name="rappr" /> No, agisce in virtù di delega/procura
-              </label>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <label className="flex items-center gap-2 cursor-pointer border border-[#c7c6ca] bg-white px-4 py-3 text-[13px]"><input type="radio" name="representation" defaultChecked /> Sì</label>
+              <label className="flex items-center gap-2 cursor-pointer border border-[#c7c6ca] bg-white px-4 py-3 text-[13px]"><input type="radio" name="representation" /> No, delega/procura</label>
             </div>
+            <p className="text-[11px] text-[#76777b]">In Phase 1 questa scelta guida il fascicolo; la gestione documentale della procura rimane manuale.</p>
           </div>
-          
           <div className="mt-12 flex justify-end">
-            <button onClick={() => handleSaveProgress('relazioni')} className="bg-[#1a1c1a] text-white px-8 py-3 text-[12px] uppercase font-bold tracking-widest hover:bg-[#333533] transition-colors">
-              Continua
-            </button>
+            <button onClick={() => saveSectionAndContinue('relazioni')} className="bg-[#1a1c1a] text-white px-8 py-3 text-[12px] uppercase font-bold tracking-widest hover:bg-[#333533]">Continua</button>
           </div>
-        </div>
+        </section>
       )}
 
       {currentStep === 4 && (
-        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <h1 className="text-[32px] font-serif-display font-bold text-[#1a1c1a] mb-2">Contesto dell&apos;Operazione</h1>
-          <p className="text-[14px] text-[#76777b] mb-8">Informazioni relative all&apos;affare.</p>
-          
-          <div className="p-6 border border-[#c7c6ca] bg-[#faf9f6] space-y-6">
-            <div>
-              <span className="text-[10px] font-bold uppercase tracking-widest text-[#76777b] block mb-1">Tipo Operazione</span>
-              <p className="font-medium text-[#1a1c1a]">{practice.practiceType}</p>
+        <section>
+          <h1 className="text-[30px] sm:text-[32px] font-serif-display font-bold text-[#1a1c1a] mb-2">Contesto dell&apos;operazione</h1>
+          <p className="text-[14px] text-[#76777b] mb-8">Riepilogo operativo della pratica e dell&apos;immobile collegato.</p>
+          <div className="p-5 sm:p-6 border border-[#c7c6ca] bg-[#faf9f6] space-y-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <div><span className="text-[10px] uppercase tracking-widest font-bold text-[#76777b]">Tipo operazione</span><p className="font-medium text-[#1a1c1a]">{practice.practiceType}</p></div>
+              <div><span className="text-[10px] uppercase tracking-widest font-bold text-[#76777b]">Immobile</span><p className="font-medium text-[#1a1c1a]">{property?.type || 'Da completare'} · {property?.municipality || 'Comune da completare'}</p></div>
             </div>
-            
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-[11px] uppercase tracking-wider font-bold text-[#1a1c1a] mb-2">Scopo dell&apos;operazione</label>
-                <select className="w-full p-2 border border-[#c7c6ca] bg-white">
-                  <option>Abitazione principale</option>
-                  <option>Investimento</option>
-                  <option>Seconda casa</option>
-                  <option>Attività commerciale</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-[11px] uppercase tracking-wider font-bold text-[#1a1c1a] mb-2">Valore stimato (Fascia)</label>
-                <select className="w-full p-2 border border-[#c7c6ca] bg-white">
-                  <option>Fino a € 250.000</option>
-                  <option>€ 250.000 - € 500.000</option>
-                  <option>€ 500.000 - € 1.000.000</option>
-                  <option>Oltre € 1.000.000</option>
-                </select>
-              </div>
-            </div>
+            <label className="block text-[11px] uppercase tracking-wider font-bold text-[#1a1c1a] border-t border-[#c7c6ca] pt-5">
+              Scopo dichiarato dell&apos;operazione
+              <select className="mt-2 w-full p-3 border border-[#c7c6ca] bg-white font-normal normal-case tracking-normal">
+                <option>Da raccogliere / confermare</option>
+                <option>Abitazione principale</option>
+                <option>Investimento</option>
+                <option>Seconda casa</option>
+                <option>Attività commerciale</option>
+              </select>
+            </label>
+            <label className="block text-[11px] uppercase tracking-wider font-bold text-[#1a1c1a]">
+              Fascia economica dichiarata dell&apos;operazione
+              <select className="mt-2 w-full p-3 border border-[#c7c6ca] bg-white font-normal normal-case tracking-normal">
+                <option>Da raccogliere / confermare</option>
+                <option>Fino a € 250.000</option>
+                <option>€ 250.000 – € 500.000</option>
+                <option>€ 500.000 – € 1.000.000</option>
+                <option>Oltre € 1.000.000</option>
+              </select>
+            </label>
           </div>
-          
           <div className="mt-12 flex justify-end">
-            <button onClick={() => handleSaveProgress('operazione')} className="bg-[#1a1c1a] text-white px-8 py-3 text-[12px] uppercase font-bold tracking-widest hover:bg-[#333533] transition-colors">
-              Continua
-            </button>
+            <button onClick={() => saveSectionAndContinue('operazione')} className="bg-[#1a1c1a] text-white px-8 py-3 text-[12px] uppercase font-bold tracking-widest hover:bg-[#333533]">Continua</button>
           </div>
-        </div>
+        </section>
       )}
 
       {currentStep === 5 && (
-        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <h1 className="text-[32px] font-serif-display font-bold text-[#1a1c1a] mb-2">Origine dei Fondi</h1>
-          <p className="text-[14px] text-[#76777b] mb-8">Dichiarazione sull&apos;origine dei mezzi patrimoniali.</p>
-          
-          <div className="p-6 border border-[#c7c6ca] bg-[#faf9f6]">
-            <label className="block text-[11px] uppercase tracking-wider font-bold text-[#1a1c1a] mb-2">Dichiarazione raccolta</label>
-            <textarea rows={4} className="w-full p-3 border border-[#c7c6ca] bg-white text-[13px]" placeholder="Es. I fondi impiegati nell&apos;operazione derivano da risparmi personali / mutuo bancario / vendita precedente immobile..."></textarea>
+        <section>
+          <h1 className="text-[30px] sm:text-[32px] font-serif-display font-bold text-[#1a1c1a] mb-2">Origine dei fondi / dichiarazioni</h1>
+          <p className="text-[14px] text-[#76777b] mb-8">Raccogli la dichiarazione dell&apos;interessato nel fascicolo operativo.</p>
+          <div className="p-5 sm:p-6 border border-[#c7c6ca] bg-[#faf9f6]">
+            <label className="block text-[11px] uppercase tracking-wider font-bold text-[#1a1c1a]">
+              Dichiarazione raccolta
+              <textarea rows={5} className="mt-2 w-full p-3 border border-[#c7c6ca] bg-white text-[13px] font-normal normal-case tracking-normal" placeholder="Annotazione operativa della dichiarazione raccolta..." />
+            </label>
+            <p className="text-[11px] text-[#76777b] mt-3">Il testo inserito qui è un supporto alla raccolta manuale e non viene verificato automaticamente.</p>
           </div>
-          
           <div className="mt-12 flex justify-end">
-            <button onClick={() => handleSaveProgress('origineFondi')} className="bg-[#1a1c1a] text-white px-8 py-3 text-[12px] uppercase font-bold tracking-widest hover:bg-[#333533] transition-colors">
-              Vai al Riepilogo
-            </button>
+            <button onClick={() => saveSectionAndContinue('origineFondi')} className="bg-[#1a1c1a] text-white px-8 py-3 text-[12px] uppercase font-bold tracking-widest hover:bg-[#333533]">Continua</button>
           </div>
-        </div>
+        </section>
       )}
 
       {currentStep === 6 && (
-        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <h1 className="text-[32px] font-serif-display font-bold text-[#1a1c1a] mb-2">Valutazione del Rischio</h1>
-          <p className="text-[14px] text-[#76777b] mb-8">Assegna un livello di rischio basato sulle informazioni raccolte.</p>
-          
-          <div className="bg-white border border-[#c7c6ca] p-6 space-y-6">
-            <div>
-              <span className="text-[12px] font-bold text-[#1a1c1a] uppercase tracking-widest border-b border-[#1a1c1a] pb-1">Valutazione inserita dall&apos;operatore</span>
-              <p className="text-[12px] text-[#76777b] mt-2">La valutazione finale spetta al professionista incaricato.</p>
+        <section>
+          <span className="text-[11px] uppercase tracking-widest font-bold text-[#a14009]">Valutazione inserita dall&apos;operatore</span>
+          <h1 className="text-[30px] sm:text-[32px] font-serif-display font-bold text-[#1a1c1a] mb-2 mt-1">Valutazione operativa del rischio</h1>
+          <p className="text-[14px] text-[#76777b] mb-8">Seleziona manualmente il livello. Mandato Ready non lo calcola e non propone una certificazione AML.</p>
+
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {(['Basso', 'Medio', 'Alto'] as const).map((level) => (
+                <label
+                  key={level}
+                  className={`p-4 border cursor-pointer text-center transition-colors ${
+                    riskLevel === level ? 'border-[#1a1c1a] bg-[#f4f3f1] text-[#1a1c1a]' : 'border-[#c7c6ca] text-[#76777b] bg-white hover:bg-[#faf9f6]'
+                  }`}
+                >
+                  <input type="radio" name="risk" value={level} checked={riskLevel === level} className="sr-only" onChange={() => setRiskLevel(level)} />
+                  <span className="font-bold text-[14px] uppercase tracking-widest">{level}</span>
+                </label>
+              ))}
             </div>
-            
-            <div className="grid grid-cols-3 gap-4">
-              <label className={`p-4 border cursor-pointer transition-colors text-center ${riskLevel === 'Basso' ? 'border-[#1b5e20] bg-[#e8f5e9] text-[#1b5e20]' : 'border-[#c7c6ca] text-[#76777b] hover:bg-[#faf9f6]'}`}>
-                <input type="radio" name="risk" value="Basso" className="hidden" onChange={(e) => setRiskLevel(e.target.value)} />
-                <span className="font-bold text-[14px] uppercase tracking-widest">Basso</span>
-              </label>
-              <label className={`p-4 border cursor-pointer transition-colors text-center ${riskLevel === 'Medio' ? 'border-[#a14009] bg-[#ffdbcd] text-[#a14009]' : 'border-[#c7c6ca] text-[#76777b] hover:bg-[#faf9f6]'}`}>
-                <input type="radio" name="risk" value="Medio" className="hidden" onChange={(e) => setRiskLevel(e.target.value)} />
-                <span className="font-bold text-[14px] uppercase tracking-widest">Medio</span>
-              </label>
-              <label className={`p-4 border cursor-pointer transition-colors text-center ${riskLevel === 'Alto' ? 'border-[#ba1a1a] bg-[#ffdad6] text-[#ba1a1a]' : 'border-[#c7c6ca] text-[#76777b] hover:bg-[#faf9f6]'}`}>
-                <input type="radio" name="risk" value="Alto" className="hidden" onChange={(e) => setRiskLevel(e.target.value)} />
-                <span className="font-bold text-[14px] uppercase tracking-widest">Alto</span>
-              </label>
-            </div>
-            
-            <div>
-              <label className="block text-[11px] uppercase tracking-wider font-bold text-[#1a1c1a] mb-2">Note a supporto della valutazione</label>
-              <textarea value={riskNotes} onChange={e => setRiskNotes(e.target.value)} rows={3} className="w-full p-3 border border-[#c7c6ca] bg-white text-[13px]"></textarea>
+
+            <label className="block text-[11px] uppercase tracking-wider font-bold text-[#1a1c1a]">
+              Note dell&apos;operatore
+              <textarea value={riskNotes} onChange={(event) => setRiskNotes(event.target.value)} rows={4} className="mt-2 w-full p-3 border border-[#c7c6ca] bg-white text-[13px] font-normal normal-case tracking-normal" placeholder="Motivazioni e annotazioni operative..." />
+            </label>
+
+            <div className="p-4 border border-[#c7c6ca] bg-[#faf9f6] text-[12px] text-[#46474a]">
+              Operatore registrato: <strong>{agencyProfile.agentName}</strong>. La responsabilità della valutazione rimane dell&apos;operatore.
             </div>
           </div>
-          
-          <div className="mt-12 flex justify-between">
-            <button onClick={() => setCurrentStep(5)} className="text-[12px] font-bold text-[#76777b] hover:text-[#1a1c1a] underline">Torna indietro</button>
+
+          <div className="mt-12 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3">
+            <button onClick={() => setCurrentStep(5)} className="text-[12px] font-bold text-[#76777b] hover:text-[#1a1c1a] underline self-start">Torna indietro</button>
             <button
               onClick={handleComplete}
               disabled={!riskLevel}
-              className={`px-8 py-3 text-[12px] uppercase font-bold tracking-widest transition-colors ${riskLevel ? 'bg-[#1a1c1a] text-white hover:bg-[#333533]' : 'bg-[#e6e5e8] text-[#76777b] cursor-not-allowed'}`}
+              className="px-8 py-3 text-[12px] uppercase font-bold tracking-widest bg-[#1a1c1a] text-white hover:bg-[#333533] disabled:bg-[#e6e5e8] disabled:text-[#76777b] disabled:cursor-not-allowed"
             >
-              Completato Operativamente
+              Completa operativamente
             </button>
           </div>
-        </div>
+        </section>
       )}
     </div>
   );
