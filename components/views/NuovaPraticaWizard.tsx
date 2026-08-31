@@ -2,14 +2,17 @@
 
 import React, { useMemo, useState } from 'react';
 import { useApp } from '@/context/AppContext';
-import type { Practice } from '@/lib/types';
+import type { Practice, Property } from '@/lib/types';
 import { PropertyTypeSelector } from '@/components/common/PropertyTypeSelector';
 
 type WizardStep = 1 | 2 | 3 | 4;
 type WizardOrigin = 'opportunity' | 'existing_client' | 'new_client';
 
 const asPracticeType = (value: string): Practice['practiceType'] | null => {
-  if (value === 'Compravendita' || value === 'Locazione' || value === 'Valutazione e Incarico') return value;
+  const normalized = value.trim().toLowerCase();
+  if (normalized.startsWith('compravendita')) return 'Compravendita';
+  if (normalized.startsWith('locazione')) return 'Locazione';
+  if (normalized.includes('valutazione') && normalized.includes('incarico')) return 'Valutazione e Incarico';
   return null;
 };
 
@@ -26,6 +29,7 @@ export const NuovaPraticaWizard: React.FC = () => {
     convertOpportunityToPractice,
     addNewClient,
     addNewProperty,
+    updateProperty,
     openPracticeDetail,
   } = useApp();
 
@@ -48,22 +52,29 @@ export const NuovaPraticaWizard: React.FC = () => {
   const [newPropType, setNewPropType] = useState('');
   const [newPropSurface, setNewPropSurface] = useState('');
 
-  const configuredPracticeTypes = useMemo(
-    () =>
-      agencyProfile.workPreferences.practiceTypes
+  const configuredPracticeTypes = useMemo<Practice['practiceType'][]>(
+    () => {
+      const values = agencyProfile.workPreferences.practiceTypes
         .map(asPracticeType)
-        .filter((value): value is Practice['practiceType'] => Boolean(value)),
+        .filter((value): value is Practice['practiceType'] => value !== null);
+      return [...new Set(values)];
+    },
     [agencyProfile.workPreferences.practiceTypes]
   );
+  const selectablePracticeTypes: Practice['practiceType'][] = configuredPracticeTypes.length
+    ? configuredPracticeTypes
+    : ['Compravendita', 'Locazione'];
   const [practiceType, setPracticeType] = useState<Practice['practiceType']>(() =>
-    configuredPracticeTypes[0] || 'Compravendita'
+    selectablePracticeTypes[0] || 'Compravendita'
   );
   const [availableDocs, setAvailableDocs] = useState<string[]>([]);
   const [createdPractice, setCreatedPractice] = useState<Practice | null>(null);
   const [formError, setFormError] = useState('');
 
-  const linkedProperties = useMemo(
-    () => (selectedClientId ? properties.filter((property) => property.owners.includes(selectedClientId)) : []),
+  const selectableProperties = useMemo(
+    () => selectedClientId
+      ? properties.filter((property) => property.owners.length === 0 || property.owners.includes(selectedClientId))
+      : [],
     [properties, selectedClientId]
   );
 
@@ -75,50 +86,54 @@ export const NuovaPraticaWizard: React.FC = () => {
     );
   };
 
+  const returnToPractices = () => {
+    setSelectedPracticeId(null);
+    setActiveTab('pratiche');
+  };
+
   const goBack = () => {
     setFormError('');
-    if (currentStep === 3) setCurrentStep(2);
-    else if (currentStep === 2 && !wizardPreset?.mode) setCurrentStep(1);
-    else if (currentStep === 4) setActiveTab('pratiche');
-    else setActiveTab('pratiche');
+    if (currentStep === 3) return setCurrentStep(2);
+    if (currentStep === 2 && !wizardPreset?.mode) return setCurrentStep(1);
+    returnToPractices();
   };
 
   const validateSubjects = () => {
-    if (selectedOrigin === 'opportunity') {
-      if (!selectedOppId) return 'Seleziona un’opportunità.';
-      return '';
-    }
-
+    if (selectedOrigin === 'opportunity') return selectedOppId ? '' : 'Seleziona un’opportunità.';
     if (selectedOrigin === 'existing_client') {
       if (!selectedClientId) return 'Seleziona un cliente esistente.';
-      if (!selectedPropertyId) return 'Seleziona un immobile esistente collegato alla pratica.';
+      if (!selectedPropertyId) return 'Seleziona un immobile esistente.';
       return '';
     }
-
     if (!newClientFirstName.trim()) return 'Inserisci il nome del cliente.';
     if (!newClientLastName.trim()) return 'Inserisci il cognome del cliente.';
     if (!newClientPhone.trim()) return 'Inserisci telefono o WhatsApp del cliente.';
     if (!newClientEmail.trim()) return 'Inserisci l’email del cliente.';
     if (!newPropType.trim()) return 'Seleziona la tipologia dell’immobile.';
     if (!newPropMunicipality.trim()) return 'Inserisci il comune dell’immobile.';
-    if (newPropSurface && Number(newPropSurface) <= 0) return 'La superficie, se indicata, deve essere maggiore di zero.';
+    if (newPropSurface.trim() && Number(newPropSurface) <= 0) return 'La superficie, se indicata, deve essere maggiore di zero.';
     return '';
   };
 
   const continueToDetails = () => {
     const error = validateSubjects();
-    if (error) {
-      setFormError(error);
-      return;
-    }
+    if (error) return setFormError(error);
     setFormError('');
     setCurrentStep(3);
   };
 
+  const resolveExistingProperty = (): Property | undefined => {
+    const property = properties.find((item) => item.id === selectedPropertyId);
+    if (!property) return undefined;
+    if (property.owners.includes(selectedClientId)) return property;
+    if (property.owners.length > 0) return undefined;
+    return updateProperty(property.id, { owners: [selectedClientId] });
+  };
+
   const handleFinalize = () => {
-    const error = validateSubjects();
-    if (error) {
-      setFormError(error);
+    const validationError = validateSubjects();
+    if (validationError) {
+      setFormError(validationError);
       setCurrentStep(2);
       return;
     }
@@ -130,9 +145,9 @@ export const NuovaPraticaWizard: React.FC = () => {
         practice = convertOpportunityToPractice(selectedOppId);
       } else if (selectedOrigin === 'existing_client') {
         const client = clients.find((item) => item.id === selectedClientId);
-        const property = properties.find((item) => item.id === selectedPropertyId);
+        const property = resolveExistingProperty();
         if (!client || !property) {
-          setFormError('Cliente o immobile non sono più disponibili. Selezionali nuovamente.');
+          setFormError('Cliente o immobile non sono più disponibili o risultano collegati a un altro proprietario.');
           setCurrentStep(2);
           return;
         }
@@ -152,16 +167,14 @@ export const NuovaPraticaWizard: React.FC = () => {
           city: newPropMunicipality.trim(),
           address: newPropAddress.trim() || undefined,
         });
-        const parsedSurface = newPropSurface.trim() ? Number(newPropSurface) : undefined;
         const property = addNewProperty({
           address: newPropAddress.trim(),
           municipality: newPropMunicipality.trim(),
           province: '',
           type: newPropType.trim(),
-          approximateSurface: parsedSurface,
+          approximateSurface: newPropSurface.trim() ? Number(newPropSurface) : undefined,
           owners: [client.id],
         });
-
         practice = createPracticeFromWizard({
           client,
           property,
@@ -174,7 +187,6 @@ export const NuovaPraticaWizard: React.FC = () => {
         setFormError('Impossibile creare la pratica con i dati selezionati.');
         return;
       }
-
       setCreatedPractice(practice);
       setFormError('');
       setCurrentStep(4);
@@ -183,82 +195,48 @@ export const NuovaPraticaWizard: React.FC = () => {
     }
   };
 
-  const returnToPractices = () => {
-    setSelectedPracticeId(null);
-    setActiveTab('pratiche');
-  };
-
   return (
     <div className="min-h-screen bg-[#faf9f6] text-[#1a1c1a] flex flex-col font-sans min-w-0">
       <header className="flex justify-between items-center gap-3 py-5 px-4 sm:px-6 md:px-16 border-b border-[#c7c6ca] bg-[#faf9f6] sticky top-0 z-30 min-w-0">
-        <button
-          onClick={goBack}
-          className="flex items-center gap-2 text-[11px] sm:text-[12px] font-bold uppercase tracking-widest hover:text-[#a14009] min-w-0"
-        >
+        <button onClick={goBack} className="flex items-center gap-2 text-[11px] sm:text-[12px] font-bold uppercase tracking-widest hover:text-[#a14009] min-w-0">
           <span className="material-symbols-outlined text-[18px]">arrow_back</span>
           <span className="hidden sm:inline">Indietro</span>
         </button>
-        <h1 className="text-[13px] sm:text-[16px] font-bold tracking-widest uppercase font-serif-display text-center min-w-0">
-          NUOVA PRATICA
-        </h1>
-        <button
-          onClick={returnToPractices}
-          className="text-[11px] sm:text-[12px] font-bold uppercase tracking-widest text-[#76777b] hover:text-[#ba1a1a]"
-        >
-          Annulla
-        </button>
+        <h1 className="text-[13px] sm:text-[16px] font-bold tracking-widest uppercase font-serif-display text-center min-w-0">NUOVA PRATICA</h1>
+        <button onClick={returnToPractices} className="text-[11px] sm:text-[12px] font-bold uppercase tracking-widest text-[#76777b] hover:text-[#ba1a1a]">Annulla</button>
       </header>
 
       <main className="flex-1 flex flex-col items-center py-8 md:py-14 px-4 sm:px-6 md:px-12 max-w-4xl mx-auto w-full min-w-0">
         <div className="flex items-center justify-center gap-2 sm:gap-4 mb-10 select-none w-full max-w-md min-w-0" aria-label="Avanzamento procedura">
           {[
-            { step: 1, label: 'Origine' },
-            { step: 2, label: 'Soggetti' },
-            { step: 3, label: 'Dettagli' },
+            { step: 1 as const, label: 'Origine' },
+            { step: 2 as const, label: 'Soggetti' },
+            { step: 3 as const, label: 'Dettagli' },
           ].map((item, index) => (
             <React.Fragment key={item.step}>
               {index > 0 && <div className="flex-1 max-w-12 h-px bg-[#c7c6ca] mb-4" />}
               <div className={`flex flex-col items-center gap-1.5 ${currentStep < item.step ? 'opacity-40' : ''}`}>
-                <div className={`w-7 h-7 flex items-center justify-center text-[12px] font-bold ${currentStep >= item.step ? 'bg-[#1a1c1a] text-white' : 'border border-[#c7c6ca] text-[#76777b]'}`}>
-                  {item.step}
-                </div>
+                <div className={`w-7 h-7 flex items-center justify-center text-[12px] font-bold ${currentStep >= item.step ? 'bg-[#1a1c1a] text-white' : 'border border-[#c7c6ca] text-[#76777b]'}`}>{item.step}</div>
                 <span className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider sm:tracking-widest">{item.label}</span>
               </div>
             </React.Fragment>
           ))}
         </div>
 
-        {formError && (
-          <div role="alert" className="w-full max-w-2xl mb-5 border border-[#ba1a1a] bg-[#fff3f1] px-4 py-3 text-[13px] text-[#7a1b12]">
-            {formError}
-          </div>
-        )}
+        {formError && <div role="alert" className="w-full max-w-2xl mb-5 border border-[#ba1a1a] bg-[#fff3f1] px-4 py-3 text-[13px] text-[#7a1b12]">{formError}</div>}
 
         {currentStep === 1 && (
           <section className="w-full max-w-2xl space-y-4" data-testid="practice-origin-step">
             <h2 className="text-[28px] md:text-[34px] font-serif-display font-bold text-center mb-8">Da dove vuoi iniziare?</h2>
             {[
-              ['opportunity', 'analytics', 'Da un’opportunità Mandato Ready', 'Riusa Cliente, Immobile e informazioni già presenti.'],
-              ['existing_client', 'groups', 'Da un cliente esistente', 'Collega un Cliente e un Immobile già censiti.'],
-              ['new_client', 'person_add', 'Da un nuovo cliente', 'Crea i record minimi senza inventare dati mancanti.'],
-            ].map(([origin, icon, title, description]) => (
-              <button
-                key={origin}
-                onClick={() => {
-                  setSelectedOrigin(origin as WizardOrigin);
-                  setFormError('');
-                  setCurrentStep(2);
-                }}
-                className="w-full flex items-start justify-between gap-4 p-5 sm:p-6 border border-[#c7c6ca] hover:border-[#1a1c1a] hover:bg-[#f4f3f1] text-left min-w-0"
-              >
+              { origin: 'opportunity' as const, icon: 'analytics', title: 'Da un’opportunità Mandato Ready', description: 'Riusa Cliente, Immobile e informazioni già presenti.' },
+              { origin: 'existing_client' as const, icon: 'groups', title: 'Da un cliente esistente', description: 'Collega record Cliente e Immobile già censiti.' },
+              { origin: 'new_client' as const, icon: 'person_add', title: 'Da un nuovo cliente', description: 'Crea i record minimi senza inventare dati mancanti.' },
+            ].map((item) => (
+              <button key={item.origin} onClick={() => { setSelectedOrigin(item.origin); setFormError(''); setCurrentStep(2); }} className="w-full flex items-start justify-between gap-4 p-5 sm:p-6 border border-[#c7c6ca] hover:border-[#1a1c1a] hover:bg-[#f4f3f1] text-left min-w-0">
                 <span className="flex gap-4 items-start min-w-0">
-                  <span className="w-11 h-11 flex shrink-0 items-center justify-center border border-[#c7c6ca] bg-[#f4f3f1]">
-                    <span className="material-symbols-outlined text-[22px]">{icon}</span>
-                  </span>
-                  <span className="min-w-0">
-                    <strong className="block text-[17px] font-serif-display break-words">{title}</strong>
-                    <span className="block text-[13px] text-[#46474a] mt-1 break-words">{description}</span>
-                  </span>
+                  <span className="w-11 h-11 flex shrink-0 items-center justify-center border border-[#c7c6ca] bg-[#f4f3f1]"><span className="material-symbols-outlined text-[22px]">{item.icon}</span></span>
+                  <span className="min-w-0"><strong className="block text-[17px] font-serif-display break-words">{item.title}</strong><span className="block text-[13px] text-[#46474a] mt-1 break-words">{item.description}</span></span>
                 </span>
                 <span className="material-symbols-outlined text-[#76777b] shrink-0">arrow_forward</span>
               </button>
@@ -269,11 +247,7 @@ export const NuovaPraticaWizard: React.FC = () => {
         {currentStep === 2 && (
           <section className="w-full max-w-2xl space-y-6" data-testid="practice-subjects-step">
             <h2 className="text-[27px] font-serif-display font-bold text-center">
-              {selectedOrigin === 'opportunity'
-                ? 'Seleziona l’opportunità'
-                : selectedOrigin === 'existing_client'
-                  ? 'Seleziona Cliente e Immobile'
-                  : 'Dati essenziali'}
+              {selectedOrigin === 'opportunity' ? 'Seleziona l’opportunità' : selectedOrigin === 'existing_client' ? 'Seleziona Cliente e Immobile' : 'Dati essenziali'}
             </h2>
 
             {selectedOrigin === 'opportunity' && (
@@ -282,16 +256,8 @@ export const NuovaPraticaWizard: React.FC = () => {
                   const client = clients.find((item) => item.id === opportunity.clientId);
                   const property = properties.find((item) => item.id === opportunity.propertyId);
                   return (
-                    <button
-                      key={opportunity.id}
-                      type="button"
-                      onClick={() => setSelectedOppId(opportunity.id)}
-                      className={`w-full p-4 sm:p-5 border text-left flex justify-between gap-4 min-w-0 ${selectedOppId === opportunity.id ? 'border-2 border-[#1a1c1a] bg-[#ffdbcd]/30' : 'border-[#c7c6ca] hover:bg-[#f4f3f1]'}`}
-                    >
-                      <span className="min-w-0">
-                        <strong className="block break-words">{client ? `${client.firstName} ${client.lastName}` : 'Cliente non disponibile'}</strong>
-                        <span className="text-[13px] text-[#46474a] break-words">{property ? `${property.address || 'Indirizzo da definire'} · ${property.municipality} · ${property.type}` : 'Immobile non disponibile'}</span>
-                      </span>
+                    <button key={opportunity.id} type="button" onClick={() => setSelectedOppId(opportunity.id)} className={`w-full p-4 sm:p-5 border text-left flex justify-between gap-4 min-w-0 ${selectedOppId === opportunity.id ? 'border-2 border-[#1a1c1a] bg-[#ffdbcd]/30' : 'border-[#c7c6ca] hover:bg-[#f4f3f1]'}`}>
+                      <span className="min-w-0"><strong className="block break-words">{client ? `${client.firstName} ${client.lastName}` : 'Cliente non disponibile'}</strong><span className="text-[13px] text-[#46474a] break-words">{property ? `${property.address || 'Indirizzo da definire'} · ${property.municipality} · ${property.type}` : 'Immobile non disponibile'}</span></span>
                       <span className="text-[11px] font-mono shrink-0">{opportunity.priority}</span>
                     </button>
                   );
@@ -303,42 +269,19 @@ export const NuovaPraticaWizard: React.FC = () => {
               <div className="space-y-4">
                 <label className="block text-[12px] font-bold uppercase tracking-wider text-[#76777b]">
                   Cliente registrato
-                  <select
-                    data-testid="existing-client-select"
-                    value={selectedClientId}
-                    onChange={(event) => {
-                      const nextClientId = event.target.value;
-                      setSelectedClientId(nextClientId);
-                      const firstLinked = properties.find((property) => property.owners.includes(nextClientId));
-                      setSelectedPropertyId(firstLinked?.id || '');
-                    }}
-                    className="mt-2 w-full p-3 border border-[#c7c6ca] bg-white text-[#1a1c1a] normal-case font-normal"
-                  >
+                  <select data-testid="existing-client-select" value={selectedClientId} onChange={(event) => { setSelectedClientId(event.target.value); setSelectedPropertyId(''); }} className="mt-2 w-full p-3 border border-[#c7c6ca] bg-white text-[#1a1c1a] normal-case font-normal">
                     <option value="">-- Seleziona un cliente --</option>
-                    {clients.map((client) => (
-                      <option key={client.id} value={client.id}>{client.firstName} {client.lastName} · {client.phone}</option>
-                    ))}
+                    {clients.map((client) => <option key={client.id} value={client.id}>{client.firstName} {client.lastName} · {client.phone}</option>)}
                   </select>
                 </label>
-
                 <label className="block text-[12px] font-bold uppercase tracking-wider text-[#76777b]">
-                  Immobile
-                  <select
-                    data-testid="existing-property-select"
-                    value={selectedPropertyId}
-                    onChange={(event) => setSelectedPropertyId(event.target.value)}
-                    disabled={!selectedClientId}
-                    className="mt-2 w-full p-3 border border-[#c7c6ca] bg-white text-[#1a1c1a] normal-case font-normal disabled:opacity-50"
-                  >
+                  Immobile condiviso
+                  <select data-testid="existing-property-select" value={selectedPropertyId} onChange={(event) => setSelectedPropertyId(event.target.value)} disabled={!selectedClientId} className="mt-2 w-full p-3 border border-[#c7c6ca] bg-white text-[#1a1c1a] normal-case font-normal disabled:opacity-50">
                     <option value="">-- Seleziona immobile --</option>
-                    {linkedProperties.map((property) => (
-                      <option key={property.id} value={property.id}>{property.address || 'Indirizzo da definire'} · {property.municipality} · {property.type}</option>
-                    ))}
+                    {selectableProperties.map((property) => <option key={property.id} value={property.id}>{property.address || 'Indirizzo da definire'} · {property.municipality} · {property.type}{property.owners.length === 0 ? ' · senza proprietario' : ''}</option>)}
                   </select>
                 </label>
-                {selectedClientId && linkedProperties.length === 0 && (
-                  <p className="text-[12px] text-[#76777b]">Questo cliente non ha immobili collegati. Crea prima un Immobile condiviso oppure usa il flusso “Nuovo cliente”.</p>
-                )}
+                {selectedClientId && selectableProperties.length === 0 && <p className="text-[12px] text-[#76777b]">Non ci sono immobili compatibili: crea prima un Immobile condiviso oppure usa il flusso “Nuovo cliente”.</p>}
               </div>
             )}
 
@@ -356,10 +299,7 @@ export const NuovaPraticaWizard: React.FC = () => {
                 <div>
                   <h3 className="text-[13px] font-bold uppercase tracking-wider border-b border-[#c7c6ca] pb-2 mb-4">Immobile</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 min-w-0">
-                    <div className="min-w-0">
-                      <label className="text-[11px] font-bold uppercase text-[#76777b] block mb-1">Tipologia *</label>
-                      <PropertyTypeSelector value={newPropType} onChange={setNewPropType} />
-                    </div>
+                    <div className="min-w-0"><label className="text-[11px] font-bold uppercase text-[#76777b] block mb-1">Tipologia *</label><PropertyTypeSelector value={newPropType} onChange={setNewPropType} /></div>
                     <input data-testid="new-property-municipality" aria-label="Comune" placeholder="Comune *" value={newPropMunicipality} onChange={(event) => setNewPropMunicipality(event.target.value)} className="p-3 border border-[#c7c6ca] bg-white min-w-0 self-end" />
                     <input data-testid="new-property-address" aria-label="Indirizzo" placeholder="Indirizzo (opzionale)" value={newPropAddress} onChange={(event) => setNewPropAddress(event.target.value)} className="p-3 border border-[#c7c6ca] bg-white min-w-0" />
                     <input data-testid="new-property-surface" aria-label="Superficie" type="number" min="1" placeholder="Superficie m² (opzionale)" value={newPropSurface} onChange={(event) => setNewPropSurface(event.target.value)} className="p-3 border border-[#c7c6ca] bg-white min-w-0" />
@@ -383,7 +323,7 @@ export const NuovaPraticaWizard: React.FC = () => {
               <div>
                 <span className="text-[12px] font-bold uppercase tracking-wider text-[#76777b] block mb-2">Tipo di pratica</span>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {(configuredPracticeTypes.length ? configuredPracticeTypes : ['Compravendita', 'Locazione']).map((type) => (
+                  {selectablePracticeTypes.map((type) => (
                     <button key={type} type="button" onClick={() => setPracticeType(type)} className={`p-3 border text-[12px] font-bold uppercase tracking-wider break-words ${practiceType === type ? 'border-[#a14009] bg-[#ffdbcd] text-[#6a2500]' : 'border-[#c7c6ca] bg-white'}`}>{type}</button>
                   ))}
                 </div>
@@ -416,7 +356,7 @@ export const NuovaPraticaWizard: React.FC = () => {
                 <p className="text-[13px] text-[#46474a] mt-2 break-words" data-testid="created-practice-id">{createdPractice.code} · {createdPractice.id}</p>
               </div>
               <div className="space-y-4 mb-7">
-                <div className="border border-[#c7c6ca] bg-[#f4f3f1] p-4">
+                <div className="border border-[#c7c6ca] bg-[#f4f3f1] p-4 min-w-0">
                   <h3 className="text-[11px] font-bold uppercase tracking-widest mb-2">Collegamenti condivisi</h3>
                   <p className="text-[13px] text-[#46474a] break-all">Cliente: {createdPractice.clientId}</p>
                   <p className="text-[13px] text-[#46474a] break-all">Immobile: {createdPractice.propertyId}</p>
