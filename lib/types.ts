@@ -1,6 +1,49 @@
 export type ClientType = 'seller' | 'buyer' | 'both';
 export type EntityType = 'persona' | 'azienda';
 
+export interface ClientPersonalData {
+  birthDate?: string;
+  birthPlace?: string;
+  nationality?: string;
+  maritalStatus?: string;
+}
+
+export interface ClientResidenceData {
+  address?: string;
+  municipality?: string;
+  postalCode?: string;
+  province?: string;
+  country?: string;
+}
+
+export interface ClientIdentityDocument {
+  type?: string;
+  number?: string;
+  issueDate?: string;
+  expiryDate?: string;
+  issuingAuthority?: string;
+}
+
+export interface ClientContactDetails {
+  secondaryPhone?: string;
+  secondaryEmail?: string;
+  preferredContactMethod?: 'telefono' | 'whatsapp' | 'email' | 'altro';
+}
+
+export interface ClientOperationalInfo {
+  profession?: string;
+  source?: string;
+  notes?: string;
+  internalNotes?: string;
+}
+
+export interface CompanyDetails {
+  pec?: string;
+  sdi?: string;
+  registeredOffice?: ClientResidenceData;
+  fiscalCode?: string;
+}
+
 export interface Client {
   id: string;
   firstName: string;
@@ -17,6 +60,26 @@ export interface Client {
   companyName?: string;
   contactPerson?: string;
   vatNumber?: string;
+  personalData?: ClientPersonalData;
+  residence?: ClientResidenceData;
+  identityDocument?: ClientIdentityDocument;
+  contacts?: ClientContactDetails;
+  operationalInfo?: ClientOperationalInfo;
+  companyDetails?: CompanyDetails;
+}
+
+export interface PropertyDetails {
+  composition?: Record<string, string | number | boolean>;
+  features?: Record<string, string | number | boolean>;
+  cadastralDeclared?: {
+    sheet?: string;
+    parcel?: string;
+    subaltern?: string;
+    category?: string;
+    cadastralIncome?: string;
+    notes?: string;
+  };
+  documentNotes?: string;
 }
 
 export interface Property {
@@ -27,16 +90,18 @@ export interface Property {
   province: string;
   area?: string;
   type: string;
-  approximateSurface: number; // in m²
+  approximateSurface?: number; // m², optional during quick creation
   rooms?: number;
   bathrooms?: number;
   floor?: string;
   askingPrice?: number; // Prezzo richiesto dal proprietario (opzionale)
-  estimatedValue?: number; // Kept for backwards compatibility
+  /** @deprecated Baseline compatibility only. Do not use as a product valuation. */
+  estimatedValue?: number;
   owners: string[]; // Client IDs
   notes?: string;
   energyClass?: string;
   statusState?: string;
+  details?: PropertyDetails;
 }
 
 export type DashboardWidgetId =
@@ -98,7 +163,14 @@ export type AmlStatus = 'non_avviato' | 'in_corso' | 'da_verificare' | 'completa
 export type ProposalStatus = 'nessuna' | 'ricevuta' | 'in_valutazione' | 'accettata';
 
 export type DocumentCategory = 'immobile' | 'cliente' | 'incarico' | 'antiriciclaggio';
-export type DocumentStatus = 'Disponibile' | 'Da recuperare' | 'In attesa' | 'Da verificare';
+export type DocumentStatus =
+  | 'Disponibile'
+  | 'Da recuperare'
+  | 'In attesa'
+  | 'Da verificare'
+  | 'Bozza'
+  | 'In attesa firma'
+  | 'Firmato';
 
 export interface DocumentItem {
   id: string;
@@ -127,7 +199,15 @@ export interface Mandate {
   commissionValue: string;
   notes: string;
   customClauses: string;
-  status: 'Da compilare' | 'Bozza' | 'Da controllare' | 'Pronto per la firma' | 'Inviato' | 'Parzialmente firmato' | 'Firmato' | 'Annullato';
+  status:
+    | 'Da compilare'
+    | 'Bozza'
+    | 'Da controllare'
+    | 'Pronto per la firma'
+    | 'Inviato'
+    | 'Parzialmente firmato'
+    | 'Firmato'
+    | 'Annullato';
   templateId: string;
   createdAt: string;
   updatedAt: string;
@@ -146,11 +226,12 @@ export interface Signatory {
 
 export interface SigningProcess {
   id: string;
-  documentId: string; // Could be a mandate ID, or other document ID
+  documentId: string;
   practiceId: string;
   mode: 'Sequenziale' | 'Contemporanea';
   status: 'Da inviare' | 'In corso' | 'Completato' | 'Annullato' | 'Errore';
   signatories: Signatory[];
+  provider?: 'mock';
   createdAt: string;
   sentAt?: string;
   completedAt?: string;
@@ -169,9 +250,10 @@ export interface AmlDossier {
     valutazione: boolean;
   };
   riskAssessment: {
-    level: string;
+    level: '' | 'Basso' | 'Medio' | 'Alto';
     notes: string;
     date: string;
+    operatorName?: string;
   };
 }
 
@@ -191,6 +273,15 @@ export interface PracticeTimelineItem {
   current?: boolean;
 }
 
+export interface NextAction {
+  title: string;
+  description: string;
+  ctaText: string;
+  targetSection?: 'documenti' | 'incarico' | 'aml' | 'cliente' | 'immobile' | 'firma' | 'proposte';
+  documentIdToUpload?: string;
+  urgency: 'high' | 'normal' | 'none';
+}
+
 export interface Practice {
   id: string;
   code: string;
@@ -208,14 +299,10 @@ export interface Practice {
     name: string;
     initials: string;
   };
+  /** @deprecated Baseline compatibility only. Economic valuation belongs to the future Valutazioni module. */
   estimatedValue: number;
-  nextAction: {
-    title: string;
-    description: string;
-    ctaText: string;
-    targetSection?: 'documenti' | 'incarico' | 'aml' | 'cliente' | 'immobile' | 'firma';
-    documentIdToUpload?: string;
-  };
+  /** @deprecated Baseline compatibility only. Runtime UI uses the deterministic Next Action engine. */
+  nextAction: Omit<NextAction, 'urgency'>;
   amlWorkflow: {
     clienteIdentificato: boolean;
     informazioniRaccolte: boolean;
@@ -276,12 +363,18 @@ export interface WaitingItem {
 }
 
 export type StartChoice = 'new_practice' | 'opportunity' | 'explore_demo';
-export type InteractiveDemoStage = 'oggi_task' | 'practice_next_action' | 'practice_prossimo_passo' | 'practice_missing_docs' | null;
+export type InteractiveDemoStage =
+  | 'oggi_task'
+  | 'practice_next_action'
+  | 'practice_prossimo_passo'
+  | 'practice_missing_docs'
+  | null;
 
 export interface TaxonomyConfig {
   disabledCategories: string[];
   preferredCategories: string[];
   customCategories: string[];
+  categoryOrder?: string[];
 }
 
 export interface WorkPreferences {
@@ -290,6 +383,7 @@ export interface WorkPreferences {
   defaultDocs: string[];
   contextualHelpPreference?: 'all' | 'reduced';
   taxonomyConfig?: TaxonomyConfig;
+  dashboardWidgets?: DashboardWidgetConfig[];
 }
 
 export interface AgencyProfile {
