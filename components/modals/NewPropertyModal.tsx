@@ -1,29 +1,9 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useApp } from '@/context/AppContext';
-import { Property, Client } from '@/lib/types';
-
-const PROPERTY_TYPES = [
-  'Appartamento',
-  'Villa',
-  'Attico',
-  'Terratetto / Villetta',
-  'Negozio / Commerciale',
-  'Ufficio',
-  'Garage / Box',
-  'Terreno',
-  'Rustico / Casale',
-  'Altro',
-];
-
-const PROPERTY_STATUSES = [
-  'Ottimo stato / Ristrutturato',
-  'Buono stato',
-  'Da ristrutturare',
-  'Nuova costruzione',
-  'Grezzo / Da rifinire',
-];
+import type { Property } from '@/lib/types';
+import { getAvailablePropertyTypes } from '@/lib/propertyTaxonomy';
 
 export const NewPropertyModal: React.FC = () => {
   const {
@@ -31,6 +11,7 @@ export const NewPropertyModal: React.FC = () => {
     newPropertyModalState,
     closeNewPropertyModal,
     addNewProperty,
+    updateProperty,
     properties,
     clients,
     openNewPracticeWizard,
@@ -38,443 +19,234 @@ export const NewPropertyModal: React.FC = () => {
     setSelectedPropertyId,
     setActiveTab,
     isHelpModeActive,
+    agencyProfile,
   } = useApp();
 
-  // Form State
+  const taxonomyConfig = agencyProfile.workPreferences.taxonomyConfig;
+  const taxonomy = useMemo(
+    () => getAvailablePropertyTypes(
+      taxonomyConfig?.disabledCategories || [],
+      taxonomyConfig?.customCategories || [],
+      taxonomyConfig?.preferredCategories || []
+    ),
+    [taxonomyConfig]
+  );
+  const propertyTypes = useMemo(() => {
+    const ordered = [
+      ...taxonomy.preferred,
+      ...taxonomy.residenziale,
+      ...taxonomy.commerciale,
+      ...taxonomy.terreno_altro,
+      ...taxonomy.custom,
+    ];
+    return [...new Set(ordered)];
+  }, [taxonomy]);
+
   const [type, setType] = useState('Appartamento');
-  const [municipality, setMunicipality] = useState('Terrasini');
+  const [municipality, setMunicipality] = useState('');
+  const [province, setProvince] = useState('');
   const [area, setArea] = useState('');
   const [address, setAddress] = useState('');
-  const [surface, setSurface] = useState<string>('120');
+  const [surface, setSurface] = useState('');
   const [statusState, setStatusState] = useState('');
-  const [selectedOwnerId, setSelectedOwnerId] = useState<string>('');
+  const [selectedOwnerId, setSelectedOwnerId] = useState('');
+  const [askingPrice, setAskingPrice] = useState('');
+  const [rooms, setRooms] = useState('');
+  const [bathrooms, setBathrooms] = useState('');
+  const [floor, setFloor] = useState('');
+  const [energyClass, setEnergyClass] = useState('');
   const [notes, setNotes] = useState('');
-  const [askingPrice, setAskingPrice] = useState<string>('');
-
-  // Duplicate Override & Saved Result
+  const [cadastralSheet, setCadastralSheet] = useState('');
+  const [cadastralParcel, setCadastralParcel] = useState('');
+  const [cadastralSubaltern, setCadastralSubaltern] = useState('');
+  const [cadastralCategory, setCadastralCategory] = useState('');
+  const [cadastralNotes, setCadastralNotes] = useState('');
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [ignoreDuplicate, setIgnoreDuplicate] = useState(false);
   const [savedProperty, setSavedProperty] = useState<Property | null>(null);
 
-  // Search client filter inside dropdown
-  const [clientSearch, setClientSearch] = useState('');
+  const isEditing = Boolean(newPropertyModalState?.editPropertyId);
 
-  // Track modal open state to reset form during render
-  const [prevIsOpen, setPrevIsOpen] = useState(false);
-  if (isNewPropertyModalOpen && !prevIsOpen) {
-    setPrevIsOpen(true);
-    setType(newPropertyModalState?.prefill?.type || 'Appartamento');
-    setMunicipality(newPropertyModalState?.prefill?.municipality || 'Terrasini');
-    setArea(newPropertyModalState?.prefill?.area || '');
-    setAddress(newPropertyModalState?.prefill?.address || '');
-    setSurface(newPropertyModalState?.prefill?.approximateSurface ? String(newPropertyModalState.prefill.approximateSurface) : '120');
-    setStatusState(newPropertyModalState?.prefill?.statusState || '');
-    setSelectedOwnerId(newPropertyModalState?.prefill?.owners?.[0] || '');
-    setNotes(newPropertyModalState?.prefill?.notes || '');
-    setAskingPrice(
-      newPropertyModalState?.prefill?.askingPrice
-        ? String(newPropertyModalState.prefill.askingPrice)
-        : newPropertyModalState?.prefill?.estimatedValue
-        ? String(newPropertyModalState.prefill.estimatedValue)
-        : ''
-    );
+  useEffect(() => {
+    if (!isNewPropertyModalOpen) return;
+    const prefill = newPropertyModalState?.prefill;
+    const initialType = prefill?.type || propertyTypes[0] || 'Appartamento';
+    setType(initialType);
+    setMunicipality(prefill?.municipality || '');
+    setProvince(prefill?.province || '');
+    setArea(prefill?.area || '');
+    setAddress(prefill?.address || '');
+    setSurface(prefill?.approximateSurface ? String(prefill.approximateSurface) : '');
+    setStatusState(prefill?.statusState || '');
+    setSelectedOwnerId(prefill?.owners?.[0] || '');
+    setAskingPrice(prefill?.askingPrice ? String(prefill.askingPrice) : '');
+    setRooms(prefill?.rooms ? String(prefill.rooms) : '');
+    setBathrooms(prefill?.bathrooms ? String(prefill.bathrooms) : '');
+    setFloor(prefill?.floor || '');
+    setEnergyClass(prefill?.energyClass || '');
+    setNotes(prefill?.notes || '');
+    setCadastralSheet(prefill?.details?.cadastralDeclared?.sheet || '');
+    setCadastralParcel(prefill?.details?.cadastralDeclared?.parcel || '');
+    setCadastralSubaltern(prefill?.details?.cadastralDeclared?.subaltern || '');
+    setCadastralCategory(prefill?.details?.cadastralDeclared?.category || '');
+    setCadastralNotes(prefill?.details?.cadastralDeclared?.notes || '');
     setIgnoreDuplicate(false);
     setSavedProperty(null);
-    setClientSearch('');
-  } else if (!isNewPropertyModalOpen && prevIsOpen) {
-    setPrevIsOpen(false);
-  }
+    setShowAdvanced(isEditing);
+  }, [isEditing, isNewPropertyModalOpen, newPropertyModalState, propertyTypes]);
 
-  // Duplicate detection logic
-  let possibleDuplicate: { property: Property; reason: string } | null = null;
-  if (isNewPropertyModalOpen && !ignoreDuplicate) {
+  const possibleDuplicate = useMemo(() => {
+    if (!isNewPropertyModalOpen || ignoreDuplicate || address.trim().length < 4) return null;
     const cleanAddress = address.trim().toLowerCase();
-    const cleanMuni = municipality.trim().toLowerCase();
-
-    if (cleanAddress && cleanAddress.length >= 4) {
-      for (const p of properties) {
-        const pAddr = p.address.toLowerCase();
-        const pMuni = p.municipality.toLowerCase();
-
-        if (pAddr.includes(cleanAddress) && pMuni.includes(cleanMuni)) {
-          possibleDuplicate = { property: p, reason: 'indirizzo e comune identici' };
-          break;
-        }
-      }
-    }
-  }
-
-  const filteredClients = useMemo(() => {
-    if (!clientSearch.trim()) return clients;
-    const q = clientSearch.toLowerCase();
-    return clients.filter((c) => {
-      const name = c.entityType === 'azienda' ? c.companyName || '' : `${c.firstName} ${c.lastName}`;
-      return name.toLowerCase().includes(q) || c.phone.includes(q) || c.email.toLowerCase().includes(q);
-    });
-  }, [clients, clientSearch]);
+    const cleanMunicipality = municipality.trim().toLowerCase();
+    return properties.find((property) => {
+      if (property.id === newPropertyModalState?.editPropertyId) return false;
+      return property.address.trim().toLowerCase() === cleanAddress && property.municipality.trim().toLowerCase() === cleanMunicipality;
+    }) || null;
+  }, [address, ignoreDuplicate, isNewPropertyModalOpen, municipality, newPropertyModalState?.editPropertyId, properties]);
 
   if (!isNewPropertyModalOpen) return null;
 
-  const handleFormSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const buildPayload = (): Omit<Property, 'id'> => ({
+    type,
+    municipality: municipality.trim(),
+    province: province.trim().toUpperCase(),
+    area: area.trim() || undefined,
+    address: address.trim(),
+    approximateSurface: surface ? Number(surface) || undefined : undefined,
+    owners: selectedOwnerId ? [selectedOwnerId] : [],
+    statusState: statusState || undefined,
+    askingPrice: askingPrice ? Number(askingPrice) || undefined : undefined,
+    rooms: rooms ? Number(rooms) || undefined : undefined,
+    bathrooms: bathrooms ? Number(bathrooms) || undefined : undefined,
+    floor: floor.trim() || undefined,
+    energyClass: energyClass.trim().toUpperCase() || undefined,
+    notes: notes.trim() || undefined,
+    details: {
+      cadastralDeclared: {
+        sheet: cadastralSheet.trim() || undefined,
+        parcel: cadastralParcel.trim() || undefined,
+        subaltern: cadastralSubaltern.trim() || undefined,
+        category: cadastralCategory.trim() || undefined,
+        notes: cadastralNotes.trim() || undefined,
+      },
+    },
+  });
 
-    if (!municipality.trim()) return;
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!type || !municipality.trim()) return;
+    if (possibleDuplicate && !ignoreDuplicate) return;
+    const payload = buildPayload();
+    const saved = isEditing && newPropertyModalState?.editPropertyId
+      ? updateProperty(newPropertyModalState.editPropertyId, payload)
+      : addNewProperty(payload);
+    if (!saved) return;
+    newPropertyModalState?.onSaveCallback?.(saved);
+    if (isEditing || newPropertyModalState?.onSaveCallback) closeNewPropertyModal();
+    else setSavedProperty(saved);
+  };
 
-    const created = addNewProperty({
-      type,
-      municipality: municipality.trim(),
-      province: 'PA',
-      area: area.trim() || undefined,
-      address: address.trim() || 'Indirizzo da definire',
-      approximateSurface: parseInt(surface, 10) || 100,
-      owners: selectedOwnerId ? [selectedOwnerId] : [],
-      statusState: statusState || undefined,
-      notes: notes.trim() || undefined,
-      askingPrice: askingPrice ? parseInt(askingPrice, 10) : undefined,
-      estimatedValue: askingPrice ? parseInt(askingPrice, 10) : undefined,
+  const linkNewOwner = () => {
+    if (!savedProperty) return;
+    openNewClientModal({}, (client) => {
+      const updated = updateProperty(savedProperty.id, { owners: [client.id] });
+      if (updated) setSavedProperty(updated);
     });
-
-    if (newPropertyModalState?.onSaveCallback) {
-      newPropertyModalState.onSaveCallback(created);
-      closeNewPropertyModal();
-    } else {
-      setSavedProperty(created);
-    }
   };
 
-  const handleUseExistingDuplicate = (dup: Property) => {
-    if (newPropertyModalState?.onSaveCallback) {
-      newPropertyModalState.onSaveCallback(dup);
-      closeNewPropertyModal();
-    } else {
-      setSelectedPropertyId(dup.id);
-      setActiveTab('immobili');
-      closeNewPropertyModal();
-    }
-  };
+  const inputClass = 'w-full p-2.5 border border-[#c7c6ca] bg-white text-[#1a1c1a] outline-none focus:border-[#1a1c1a] min-w-0';
+  const labelClass = 'text-[10px] sm:text-[11px] font-bold uppercase text-[#76777b] block mb-1 tracking-wide';
 
   return (
-    <div
-      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-[2px] flex items-center justify-center p-4 overflow-y-auto"
-      onClick={closeNewPropertyModal}
-    >
-      <div
-        className="bg-[#faf9f6] border-2 border-[#1a1c1a] max-w-xl w-full p-6 sm:p-8 shadow-2xl relative my-auto animate-in fade-in duration-200"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <button
-          onClick={closeNewPropertyModal}
-          className="absolute top-4 right-4 text-[#76777b] hover:text-[#1a1c1a] p-1 cursor-pointer"
-        >
-          <span className="material-symbols-outlined text-[20px]">close</span>
-        </button>
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-[2px] flex items-end sm:items-center justify-center sm:p-4 overflow-y-auto" onMouseDown={(event) => event.target === event.currentTarget && closeNewPropertyModal()}>
+      <div role="dialog" aria-modal="true" aria-labelledby="property-modal-title" className="bg-[#faf9f6] border-t-2 sm:border-2 border-[#1a1c1a] max-w-3xl w-full max-h-[95dvh] overflow-y-auto p-5 sm:p-8 shadow-2xl relative rounded-t-2xl sm:rounded-none">
+        <button onClick={closeNewPropertyModal} className="absolute top-4 right-4 text-[#76777b] hover:text-[#1a1c1a] p-2" aria-label="Chiudi"><span className="material-symbols-outlined text-[20px]">close</span></button>
 
-        {/* STEP 1: SUCCESS CONFIRMATION SCREEN */}
         {savedProperty ? (
-          <div className="text-left space-y-6">
-            <div className="flex items-center gap-3 p-4 bg-[#e8f5e9] border border-[#a5d6a7]">
-              <span className="material-symbols-outlined text-[#1b5e20] text-[28px]">check_circle</span>
-              <div>
-                <h3 className="text-[20px] font-serif-display font-bold text-[#1b5e20]">
-                  Immobile salvato
-                </h3>
-                <p className="text-[13px] text-[#2e7d32]">
-                  {savedProperty.type} in {savedProperty.address}, {savedProperty.municipality} è stato inserito nell archivio.
-                </p>
-              </div>
+          <div className="space-y-6 pr-8">
+            <div className="p-4 bg-[#e8f5e9] border border-[#a5d6a7]">
+              <h3 className="text-[20px] font-serif-display font-bold text-[#1b5e20]">Immobile salvato</h3>
+              <p className="text-[13px] text-[#2e7d32] mt-1">La scheda è indipendente dalla pratica e può essere completata in seguito.</p>
             </div>
-
-            <div className="space-y-3 pt-2">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-[#76777b] block">
-                Cosa vuoi fare ora?
-              </span>
-
-              {/* Action 1: Create Practice */}
-              <button
-                onClick={() => {
-                  closeNewPropertyModal();
-                  openNewPracticeWizard('existing_client', savedProperty.owners[0]);
-                }}
-                className="w-full p-4 text-left bg-[#1a1c1a] text-white hover:bg-[#333533] transition-colors flex items-center justify-between group cursor-pointer"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="material-symbols-outlined text-[22px] text-[#ffdbcd]">create_new_folder</span>
-                  <div>
-                    <span className="text-[14px] font-bold block">Crea una pratica con questo immobile</span>
-                    <span className="text-[11px] text-[#c7c6ca]">Avvia subito il fascicolo di vendita o locazione.</span>
-                  </div>
-                </div>
-                <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
-              </button>
-
-              {/* Action 2: Connect client if not linked */}
-              {savedProperty.owners.length === 0 && (
-                <button
-                  onClick={() => {
-                    // Open owner selector or client modal
-                    openNewClientModal(
-                      {},
-                      (newClient) => {
-                        // link owner to savedProperty
-                        savedProperty.owners = [newClient.id];
-                      }
-                    );
-                  }}
-                  className="w-full p-4 text-left bg-white border border-[#c7c6ca] hover:border-[#1a1c1a] hover:bg-[#f4f3f1] transition-colors flex items-center justify-between group cursor-pointer"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="material-symbols-outlined text-[22px] text-[#a14009]">person_add</span>
-                    <div>
-                      <span className="text-[14px] font-bold block text-[#1a1c1a]">Collega un cliente proprietario</span>
-                      <span className="text-[11px] text-[#76777b]">Crea o seleziona il proprietario dell immobile.</span>
-                    </div>
-                  </div>
-                  <span className="material-symbols-outlined text-[18px] text-[#76777b]">arrow_forward</span>
-                </button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <button onClick={() => { closeNewPropertyModal(); openNewPracticeWizard(savedProperty.owners[0] ? 'existing_client' : undefined, savedProperty.owners[0]); }} className="p-4 bg-[#1a1c1a] text-white text-left font-bold text-[13px]">Crea pratica con questo immobile</button>
+              {savedProperty.owners.length === 0 ? (
+                <button onClick={linkNewOwner} className="p-4 bg-white border border-[#c7c6ca] text-[#1a1c1a] text-left font-bold text-[13px]">Collega proprietario</button>
+              ) : (
+                <div className="p-4 bg-white border border-[#c7c6ca] text-[12px] text-[#46474a]">Proprietario collegato. Verrà riutilizzato nella pratica.</div>
               )}
-
-              {/* Action 3: Go to Immobili / View Property Detail */}
-              <button
-                onClick={() => {
-                  closeNewPropertyModal();
-                  setSelectedPropertyId(savedProperty.id);
-                  setActiveTab('immobili');
-                }}
-                className="w-full p-3 text-center border border-[#c7c6ca] text-[12px] uppercase font-bold tracking-wider text-[#1a1c1a] hover:bg-[#e3e2e0] cursor-pointer"
-              >
-                Torna agli immobili / Vedi scheda
-              </button>
+              <button onClick={() => { setSelectedPropertyId(savedProperty.id); setActiveTab('immobili'); closeNewPropertyModal(); }} className="sm:col-span-2 p-3 border border-[#c7c6ca] text-[11px] uppercase font-bold tracking-wider">Vedi scheda immobile</button>
             </div>
           </div>
         ) : (
-          /* STEP 0: FORM SCREEN */
-          <div>
-            <div className="flex items-center gap-2 mb-4 pb-2 border-b border-[#c7c6ca]">
-              <span className="material-symbols-outlined text-[#a14009] text-[24px]">home_work</span>
-              <h3 className="text-[22px] font-serif-display font-bold text-[#1a1c1a]">
-                Nuovo immobile
-              </h3>
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div className="pr-10 pb-4 border-b border-[#c7c6ca]">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-[#a14009]">{isEditing ? 'SCHEDA IMMOBILE' : 'CREAZIONE RAPIDA'}</span>
+              <h2 id="property-modal-title" className="text-[24px] font-serif-display font-bold text-[#1a1c1a]">{isEditing ? 'Completa scheda immobile' : 'Nuovo immobile'}</h2>
+              <p className="text-[12px] text-[#76777b] mt-1">Solo tipologia e comune sono necessari per iniziare. Tutto il resto resta opzionale.</p>
             </div>
 
-            {isHelpModeActive && (
-              <div className="mb-4 bg-[#ffdbcd] p-2.5 border border-[#a14009]/30 text-[12px] text-[#6a2500]">
-                💡 <strong>Immobile:</strong> Puoi salvarlo indipendentemente e collegarlo successivamente a cliente e pratica.
+            {isHelpModeActive && <div className="bg-[#ffdbcd] p-3 border border-[#a14009]/30 text-[12px] text-[#6a2500]">L&apos;immobile può esistere senza proprietario e senza pratica. Nessuna valutazione è richiesta.</div>}
+
+            {possibleDuplicate && !ignoreDuplicate && (
+              <div className="bg-[#fff8e1] border-2 border-[#f57f17] p-4 space-y-3">
+                <h3 className="text-[14px] font-bold text-[#8a5600]">Potrebbe essere già presente</h3>
+                <p className="text-[12px] text-[#5d4037]">Esiste già un immobile con lo stesso indirizzo e comune.</p>
+                <div className="p-2.5 bg-white border border-[#ffe082] text-[12px]">{possibleDuplicate.address} · {possibleDuplicate.municipality}</div>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <button type="button" onClick={() => { setSelectedPropertyId(possibleDuplicate.id); setActiveTab('immobili'); closeNewPropertyModal(); }} className="flex-1 bg-[#1a1c1a] text-white py-2 text-[11px] font-bold uppercase">Apri esistente</button>
+                  <button type="button" onClick={() => setIgnoreDuplicate(true)} className="flex-1 border border-[#b78103] text-[#8a5600] py-2 text-[11px] font-bold uppercase">Crea comunque</button>
+                </div>
               </div>
             )}
 
-            <form onSubmit={handleFormSubmit} className="space-y-4 text-[14px]">
-              {/* Duplicate Detection Warning */}
-              {possibleDuplicate && (
-                <div className="bg-[#fff8e1] border-2 border-[#f57f17] p-4 space-y-3">
-                  <div className="flex items-start gap-2.5">
-                    <span className="material-symbols-outlined text-[#f57f17] text-[22px] shrink-0">warning</span>
-                    <div>
-                      <h4 className="text-[14px] font-bold text-[#b78103]">Potrebbe essere già presente</h4>
-                      <p className="text-[12px] text-[#5d4037] mt-0.5">
-                        Trovato un immobile con indirizzo analogo:
-                      </p>
-                      <div className="mt-2 bg-white p-2.5 border border-[#ffe082] text-[12px] font-mono">
-                        <div className="font-bold text-[#1a1c1a]">{possibleDuplicate.property.address}</div>
-                        <div className="text-[#76777b]">{possibleDuplicate.property.municipality} ({possibleDuplicate.property.type})</div>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 pt-1 border-t border-[#ffe082]">
-                    <button
-                      type="button"
-                      onClick={() => handleUseExistingDuplicate(possibleDuplicate.property)}
-                      className="flex-1 bg-[#1a1c1a] text-white py-2 text-[11px] font-bold uppercase tracking-wider hover:bg-[#333533] cursor-pointer"
-                    >
-                      Apri esistente
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIgnoreDuplicate(true)}
-                      className="px-3 py-2 border border-[#b78103] text-[#b78103] text-[11px] font-bold uppercase tracking-wider hover:bg-[#fff3e0] cursor-pointer"
-                    >
-                      Crea comunque
-                    </button>
-                  </div>
-                </div>
-              )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className={labelClass}>Tipologia *<select required value={type} onChange={(event) => setType(event.target.value)} className={`${inputClass} mt-1 font-normal normal-case tracking-normal`}>{propertyTypes.map((propertyType) => <option key={propertyType}>{propertyType}</option>)}</select></label>
+              <label className={labelClass}>Comune *<input required value={municipality} onChange={(event) => setMunicipality(event.target.value)} className={`${inputClass} mt-1 font-normal normal-case`} placeholder="es. Terrasini" /></label>
+              <label className={labelClass}>Zona / quartiere<input value={area} onChange={(event) => setArea(event.target.value)} className={`${inputClass} mt-1 font-normal normal-case`} /></label>
+              <label className={labelClass}>Indirizzo<input value={address} onChange={(event) => setAddress(event.target.value)} className={`${inputClass} mt-1 font-normal normal-case`} placeholder="Opzionale" /></label>
+              <label className={labelClass}>Superficie approssimativa (m²)<input type="number" min="0" value={surface} onChange={(event) => setSurface(event.target.value)} className={`${inputClass} mt-1 font-normal`} placeholder="Opzionale" /></label>
+              <label className={labelClass}>Stato<select value={statusState} onChange={(event) => setStatusState(event.target.value)} className={`${inputClass} mt-1 font-normal normal-case`}><option value="">Non indicato</option><option>Ottimo stato / Ristrutturato</option><option>Buono stato</option><option>Da ristrutturare</option><option>Nuova costruzione</option><option>Grezzo / Da rifinire</option></select></label>
+            </div>
 
-              {/* Tipologia & Comune */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[11px] font-bold uppercase text-[#76777b] block mb-1">
-                    Tipologia Immobile
-                  </label>
-                  <select
-                    value={type}
-                    onChange={(e) => setType(e.target.value)}
-                    className="w-full p-2.5 border border-[#c7c6ca] bg-white text-[#1a1c1a] font-medium outline-none"
-                  >
-                    {PROPERTY_TYPES.map((t) => (
-                      <option key={t} value={t}>
-                        {t}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[11px] font-bold uppercase text-[#76777b] block mb-1">
-                    Comune <span className="text-[#a14009]">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={municipality}
-                    onChange={(e) => setMunicipality(e.target.value)}
-                    placeholder="es. Terrasini"
-                    className="w-full p-2.5 border border-[#c7c6ca] bg-white text-[#1a1c1a] outline-none"
-                  />
-                </div>
+            <label className={labelClass}>Proprietario (opzionale)<div className="flex flex-col sm:flex-row gap-2 mt-1"><select value={selectedOwnerId} onChange={(event) => setSelectedOwnerId(event.target.value)} className={`${inputClass} font-normal normal-case flex-1`}><option value="">Nessun proprietario associato</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.companyName || `${client.firstName} ${client.lastName}`} · {client.phone}</option>)}</select><button type="button" onClick={() => openNewClientModal({}, (client) => setSelectedOwnerId(client.id))} className="px-4 py-2.5 border border-[#1a1c1a] text-[10px] uppercase font-bold tracking-wider shrink-0">+ Cliente</button></div></label>
+
+            {!showAdvanced ? (
+              <button type="button" onClick={() => setShowAdvanced(true)} className="w-full py-3 border border-dashed border-[#c7c6ca] bg-white text-[#a14009] text-[11px] sm:text-[12px] font-bold uppercase tracking-wider">Completa scheda immobile</button>
+            ) : (
+              <div className="space-y-6 pt-2">
+                <div className="flex items-center justify-between border-b border-[#c7c6ca] pb-2"><span className="text-[11px] font-bold uppercase tracking-widest text-[#1a1c1a]">Dati opzionali modulari</span>{!isEditing && <button type="button" onClick={() => setShowAdvanced(false)} className="text-[11px] underline text-[#76777b]">Riduci</button>}</div>
+
+                <fieldset><legend className="text-[11px] font-bold uppercase tracking-widest text-[#a14009] mb-2">Dati principali</legend><div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className={labelClass}>Provincia<input value={province} onChange={(e) => setProvince(e.target.value.toUpperCase())} className={`${inputClass} mt-1 font-normal`} /></label>
+                  <label className={labelClass}>Prezzo richiesto dal proprietario (€)<input type="number" min="0" value={askingPrice} onChange={(e) => setAskingPrice(e.target.value)} className={`${inputClass} mt-1 font-normal`} placeholder="Opzionale" /><span className="normal-case tracking-normal font-normal text-[10px] block mt-1">Non è una stima o valutazione Mandato Ready.</span></label>
+                </div></fieldset>
+
+                <fieldset><legend className="text-[11px] font-bold uppercase tracking-widest text-[#a14009] mb-2">Composizione e caratteristiche</legend><div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className={labelClass}>Locali<input type="number" min="0" value={rooms} onChange={(e) => setRooms(e.target.value)} className={`${inputClass} mt-1 font-normal`} /></label>
+                  <label className={labelClass}>Bagni<input type="number" min="0" value={bathrooms} onChange={(e) => setBathrooms(e.target.value)} className={`${inputClass} mt-1 font-normal`} /></label>
+                  <label className={labelClass}>Piano<input value={floor} onChange={(e) => setFloor(e.target.value)} className={`${inputClass} mt-1 font-normal normal-case`} /></label>
+                  <label className={labelClass}>Classe energetica<input value={energyClass} onChange={(e) => setEnergyClass(e.target.value.toUpperCase())} className={`${inputClass} mt-1 font-normal`} /></label>
+                </div></fieldset>
+
+                <fieldset><legend className="text-[11px] font-bold uppercase tracking-widest text-[#a14009] mb-2">Dati catastali dichiarati</legend><p className="text-[11px] text-[#76777b] mb-3">Dati inseriti dall&apos;operatore/proprietario. Mandato Ready non ne certifica la correttezza.</p><div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className={labelClass}>Foglio<input value={cadastralSheet} onChange={(e) => setCadastralSheet(e.target.value)} className={`${inputClass} mt-1 font-normal`} /></label>
+                  <label className={labelClass}>Particella<input value={cadastralParcel} onChange={(e) => setCadastralParcel(e.target.value)} className={`${inputClass} mt-1 font-normal`} /></label>
+                  <label className={labelClass}>Subalterno<input value={cadastralSubaltern} onChange={(e) => setCadastralSubaltern(e.target.value)} className={`${inputClass} mt-1 font-normal`} /></label>
+                  <label className={labelClass}>Categoria<input value={cadastralCategory} onChange={(e) => setCadastralCategory(e.target.value)} className={`${inputClass} mt-1 font-normal`} /></label>
+                  <label className={`${labelClass} sm:col-span-2`}>Note catastali<textarea rows={2} value={cadastralNotes} onChange={(e) => setCadastralNotes(e.target.value)} className={`${inputClass} mt-1 font-normal normal-case resize-y`} /></label>
+                </div></fieldset>
+
+                <fieldset><legend className="text-[11px] font-bold uppercase tracking-widest text-[#a14009] mb-2">Note</legend><textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} className={`${inputClass} font-normal normal-case resize-y`} placeholder="Annotazioni operative..." /></fieldset>
               </div>
+            )}
 
-              {/* Address & Zone */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="sm:col-span-2">
-                  <label className="text-[11px] font-bold uppercase text-[#76777b] block mb-1">
-                    Indirizzo e Civico (opzionale)
-                  </label>
-                  <input
-                    type="text"
-                    value={address}
-                    onChange={(e) => setAddress(e.target.value)}
-                    placeholder="es. Via Roma 18"
-                    className="w-full p-2.5 border border-[#c7c6ca] bg-white text-[#1a1c1a] outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-[11px] font-bold uppercase text-[#76777b] block mb-1">
-                    Zona / Quartiere
-                  </label>
-                  <input
-                    type="text"
-                    value={area}
-                    onChange={(e) => setArea(e.target.value)}
-                    placeholder="es. Centro Storico"
-                    className="w-full p-2.5 border border-[#c7c6ca] bg-white text-[#1a1c1a] outline-none"
-                  />
-                </div>
-              </div>
-
-              {/* Surface, Status, Estimated Value */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="text-[11px] font-bold uppercase text-[#76777b] block mb-1">
-                    Superficie (m²)
-                  </label>
-                  <input
-                    type="number"
-                    value={surface}
-                    onChange={(e) => setSurface(e.target.value)}
-                    placeholder="120"
-                    className="w-full p-2.5 border border-[#c7c6ca] bg-white text-[#1a1c1a] outline-none font-mono text-[13px]"
-                  />
-                </div>
-                <div>
-                  <label className="text-[11px] font-bold uppercase text-[#76777b] block mb-1">
-                    Stato immobile
-                  </label>
-                  <select
-                    value={statusState}
-                    onChange={(e) => setStatusState(e.target.value)}
-                    className="w-full p-2.5 border border-[#c7c6ca] bg-white text-[#1a1c1a] text-[13px] outline-none"
-                  >
-                    <option value="">-- Seleziona stato --</option>
-                    {PROPERTY_STATUSES.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[11px] font-bold uppercase text-[#76777b] block mb-1">
-                    Prezzo richiesto dal proprietario (€)
-                  </label>
-                  <input
-                    type="number"
-                    value={askingPrice}
-                    onChange={(e) => setAskingPrice(e.target.value)}
-                    placeholder="250000 (opzionale)"
-                    className="w-full p-2.5 border border-[#c7c6ca] bg-white text-[#1a1c1a] outline-none font-mono text-[13px]"
-                  />
-                  <p className="text-[10px] text-[#76777b] mt-1">
-                    Prezzo desiderato dal proprietario (opzionale). Non costituisce stima o valutazione.
-                  </p>
-                </div>
-              </div>
-
-              {/* Owner Selection */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-[11px] font-bold uppercase text-[#76777b]">
-                    Proprietario (opzionale)
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      openNewClientModal({}, (newClient) => {
-                        setSelectedOwnerId(newClient.id);
-                      });
-                    }}
-                    className="text-[11px] text-[#a14009] font-bold uppercase hover:underline flex items-center gap-0.5 cursor-pointer"
-                  >
-                    <span className="material-symbols-outlined text-[14px]">add</span>
-                    Crea nuovo cliente
-                  </button>
-                </div>
-
-                <select
-                  value={selectedOwnerId}
-                  onChange={(e) => setSelectedOwnerId(e.target.value)}
-                  className="w-full p-2.5 border border-[#c7c6ca] bg-white text-[#1a1c1a] text-[13px] outline-none"
-                >
-                  <option value="">Nessun proprietario ancora associato</option>
-                  {clients.map((c) => {
-                    const name = c.entityType === 'azienda' ? `${c.companyName} (Azienda)` : `${c.firstName} ${c.lastName}`;
-                    return (
-                      <option key={c.id} value={c.id}>
-                        {name} · {c.phone}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-
-              {/* Notes */}
-              <div>
-                <label className="text-[11px] font-bold uppercase text-[#76777b] block mb-1">
-                  Note aggiuntive (opzionale)
-                </label>
-                <textarea
-                  rows={2}
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Dettagli catastali, presenza ascensore, chiavi in agenzia..."
-                  className="w-full p-2.5 border border-[#c7c6ca] bg-white text-[#1a1c1a] text-[13px] outline-none resize-none"
-                />
-              </div>
-
-              {/* Form Buttons */}
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-[#c7c6ca]">
-                <button
-                  type="button"
-                  onClick={closeNewPropertyModal}
-                  className="px-4 py-2.5 border border-[#c7c6ca] text-[12px] uppercase font-bold tracking-wider hover:bg-[#e3e2e0] cursor-pointer"
-                >
-                  Annulla
-                </button>
-                <button
-                  type="submit"
-                  className="px-6 py-2.5 bg-[#1a1c1a] text-white text-[12px] uppercase font-bold tracking-widest hover:bg-[#333533] cursor-pointer shadow-sm"
-                >
-                  Salva immobile
-                </button>
-              </div>
-            </form>
-          </div>
+            <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 sm:gap-3 pt-5 border-t border-[#c7c6ca] sticky bottom-0 bg-[#faf9f6] pb-1">
+              <button type="button" onClick={closeNewPropertyModal} className="px-4 py-2.5 border border-[#c7c6ca] text-[11px] uppercase font-bold tracking-wider">Annulla</button>
+              <button type="submit" disabled={Boolean(possibleDuplicate && !ignoreDuplicate)} className="px-6 py-2.5 bg-[#1a1c1a] text-white text-[11px] uppercase font-bold tracking-widest disabled:opacity-40 disabled:cursor-not-allowed">{isEditing ? 'Salva scheda' : 'Salva immobile'}</button>
+            </div>
+          </form>
         )}
       </div>
     </div>
