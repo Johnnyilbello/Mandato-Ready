@@ -1,0 +1,25 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "incremental": false,
+    "isolatedModules": false,
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "target": "ES2020",
+    "outDir": ".test-build",
+    "rootDir": ".",
+    "types": ["node"],
+    "jsx": "react-jsx"
+  },
+  "include": [
+    "lib/types.ts",
+    "lib/nextAction.ts",
+    "lib/signatureProvider.ts",
+    "lib/practiceCreation.ts",
+    "lib/clientDuplicates.ts",
+    "lib/dashboardPreferences.ts",
+    "tests/**/*.ts"
+  ],
+  "exclude": ["node_modules", ".next", ".test-build"]
+}
