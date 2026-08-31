@@ -1,6 +1,10 @@
-import React, { useState, useEffect } from 'react';
+'use client';
+
+import React, { useState } from 'react';
 import { useApp } from '@/context/AppContext';
-import { Mandate } from '@/lib/types';
+import type { Mandate } from '@/lib/types';
+
+type WizardStep = 1 | 2 | 3 | 4;
 
 export const IncaricoWizardView: React.FC = () => {
   const {
@@ -11,6 +15,7 @@ export const IncaricoWizardView: React.FC = () => {
     getMandateByPracticeId,
     updateMandate,
     updatePractice,
+    openNewClientModal,
     setActiveTab,
     addPracticeNote,
   } = useApp();
@@ -18,330 +23,346 @@ export const IncaricoWizardView: React.FC = () => {
   const practice = getPracticeById(selectedPracticeId || '');
   const mandate = getMandateByPracticeId(practice?.id || '');
   const property = getPropertyById(practice?.propertyId);
-  
-  // Clients (owners)
+
   const initialClientIds = practice?.clientId ? [practice.clientId] : [];
-  
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
-  
-  // Form State
-  const [clientIds, setClientIds] = useState<string[]>(mandate?.clientIds || initialClientIds);
-  const [propertyId] = useState<string>(mandate?.propertyId || practice?.propertyId || '');
-  
+  const [currentStep, setCurrentStep] = useState<WizardStep>(1);
+  const [clientIds, setClientIds] = useState<string[]>(mandate?.clientIds.length ? mandate.clientIds : initialClientIds);
+  const propertyId = mandate?.propertyId || practice?.propertyId || '';
   const [mandateType, setMandateType] = useState(mandate?.mandateType || 'Vendita');
   const [exclusivity, setExclusivity] = useState(mandate?.exclusivity || 'In esclusiva');
-  
+
   const today = new Date().toISOString().split('T')[0];
   const defaultEnd = new Date();
   defaultEnd.setMonth(defaultEnd.getMonth() + 6);
   const sixMonths = defaultEnd.toISOString().split('T')[0];
-  
+
   const [startDate, setStartDate] = useState(mandate?.startDate || today);
   const [endDate, setEndDate] = useState(mandate?.endDate || sixMonths);
-  
-  const [askingPrice, setAskingPrice] = useState(mandate?.askingPrice || property?.estimatedValue || 0);
+  const [askingPrice, setAskingPrice] = useState<number>(mandate?.askingPrice || property?.askingPrice || 0);
   const [commissionType, setCommissionType] = useState(mandate?.commissionType || 'percentuale');
   const [commissionValue, setCommissionValue] = useState(mandate?.commissionValue || '3');
   const [notes, setNotes] = useState(mandate?.notes || '');
-  
+  const [customClauses, setCustomClauses] = useState(mandate?.customClauses || '');
+  const [reviewGenerated, setReviewGenerated] = useState(mandate?.status === 'Da controllare');
+
   if (!practice) {
     return <div className="p-12 text-center text-[#76777b]">Pratica non trovata.</div>;
   }
 
-  const handleNext = () => {
-    if (currentStep < 4) setCurrentStep((prev) => (prev + 1) as 1 | 2 | 3 | 4);
+  const nextStep = () => {
+    setCurrentStep((previous) => (previous < 4 ? ((previous + 1) as WizardStep) : previous));
   };
 
-  const handleBack = () => {
-    if (currentStep > 1) setCurrentStep((prev) => (prev - 1) as 1 | 2 | 3 | 4);
-    else setActiveTab('pratiche');
+  const previousStep = () => {
+    if (currentStep > 1) {
+      setCurrentStep((previous) => ((previous - 1) as WizardStep));
+    } else {
+      setActiveTab('pratiche');
+    }
   };
+
+  const mandatePayload = (): Partial<Mandate> & { practiceId: string } => ({
+    practiceId: practice.id,
+    clientIds,
+    propertyId,
+    mandateType,
+    exclusivity,
+    startDate,
+    endDate,
+    askingPrice,
+    commissionType,
+    commissionValue,
+    notes,
+    customClauses,
+  });
 
   const handleSaveDraft = () => {
+    updateMandate({ ...mandatePayload(), status: 'Bozza' });
+    updatePractice(practice.id, { mandateStatus: 'da_preparare' });
+    addPracticeNote(practice.id, 'Incarico salvato come bozza.');
+    setActiveTab('pratiche');
+  };
+
+  const buildSignatories = (): Mandate['signatories'] =>
+    clientIds.map((clientId) => {
+      const client = getClientById(clientId);
+      const displayName = client?.entityType === 'azienda'
+        ? client.companyName || `${client.firstName} ${client.lastName}`
+        : `${client?.firstName || ''} ${client?.lastName || ''}`.trim();
+      return {
+        id: clientId,
+        name: displayName || 'Firmatario',
+        role: 'Proprietario',
+        email: client?.email || '',
+        phone: client?.phone || '',
+        status: 'Da invitare' as const,
+      };
+    });
+
+  const handleGenerateReview = () => {
     updateMandate({
-      practiceId: practice.id,
-      clientIds,
-      propertyId,
-      mandateType,
-      exclusivity,
-      startDate,
-      endDate,
-      askingPrice,
-      commissionType,
-      commissionValue,
-      notes,
-      status: 'Bozza'
+      ...mandatePayload(),
+      status: 'Da controllare',
+      signatories: buildSignatories(),
     });
     updatePractice(practice.id, { mandateStatus: 'da_preparare' });
-    addPracticeNote(practice.id, 'Incarico salvato come bozza');
-    setActiveTab('pratiche');
+    addPracticeNote(practice.id, 'Bozza incarico generata e pronta per il controllo operatore.');
+    setReviewGenerated(true);
   };
 
-  const handleGenerate = () => {
+  const handleApproveForSigning = () => {
     updateMandate({
-      practiceId: practice.id,
-      clientIds,
-      propertyId,
-      mandateType,
-      exclusivity,
-      startDate,
-      endDate,
-      askingPrice,
-      commissionType,
-      commissionValue,
-      notes,
+      ...mandatePayload(),
       status: 'Pronto per la firma',
-      signatories: clientIds.map(id => {
-        const c = getClientById(id);
-        return {
-          id: c?.id || '',
-          name: `${c?.firstName} ${c?.lastName}`,
-          role: 'Proprietario',
-          email: c?.email || '',
-          phone: c?.phone || '',
-          status: 'Da invitare'
-        };
-      })
+      signatories: buildSignatories(),
     });
-    updatePractice(practice.id, { 
-      mandateStatus: 'da_firmare',
-      nextAction: {
-        title: 'Incarico pronto',
-        description: 'La bozza dell\'incarico è stata generata. Invia il documento per la firma ai soggetti.',
-        ctaText: 'Prepara Firma',
-        targetSection: 'incarico',
-      }
-    });
-    addPracticeNote(practice.id, 'Incarico compilato e generato');
-    setActiveTab('pratiche');
+    updatePractice(practice.id, { mandateStatus: 'da_firmare' });
+    addPracticeNote(practice.id, 'Bozza incarico controllata e preparata per la firma simulata.');
+    setActiveTab('firma_process');
   };
+
+  const addSignatory = () => {
+    openNewClientModal({}, (client) => {
+      setClientIds((previous) => (previous.includes(client.id) ? previous : [...previous, client.id]));
+    });
+  };
+
+  const canProceed = clientIds.length > 0 && Boolean(propertyId);
 
   return (
-    <div className="max-w-[800px] mx-auto px-6 py-12 font-sans pb-24">
-      <div className="mb-8">
+    <div className="max-w-[800px] mx-auto px-4 sm:px-6 py-8 sm:py-12 font-sans pb-24 overflow-x-hidden">
+      <div className="mb-8 flex items-center justify-between gap-3">
         <button
-          onClick={handleBack}
+          onClick={previousStep}
           className="text-[12px] font-bold uppercase tracking-wider text-[#76777b] hover:text-[#1a1c1a] flex items-center gap-1 transition-colors"
         >
           <span className="material-symbols-outlined text-[16px]">arrow_back</span>
           Indietro
         </button>
+        <span className="text-[10px] font-bold uppercase tracking-widest text-[#76777b]">Template demo · non validato legalmente</span>
       </div>
 
-      <div className="flex items-center gap-2 mb-8">
+      <div className="flex items-center gap-2 mb-8" aria-label={`Passaggio ${currentStep} di 4`}>
         {[1, 2, 3, 4].map((step) => (
           <div
             key={step}
-            className={`h-1.5 flex-1 rounded-full ${
-              step <= currentStep ? 'bg-[#1a1c1a]' : 'bg-[#e6e5e8]'
-            }`}
+            className={`h-1.5 flex-1 ${step <= currentStep ? 'bg-[#1a1c1a]' : 'bg-[#e6e5e8]'}`}
           />
         ))}
       </div>
 
       {currentStep === 1 && (
-        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <h1 className="text-[32px] font-serif-display font-bold text-[#1a1c1a] mb-2">Chi conferisce l&apos;incarico?</h1>
-          <p className="text-[14px] text-[#76777b] mb-8">Conferma o aggiungi i proprietari e i referenti per l&apos;incarico.</p>
-          
+        <section className="animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <h1 className="text-[30px] sm:text-[32px] font-serif-display font-bold text-[#1a1c1a] mb-2">Chi conferisce l&apos;incarico?</h1>
+          <p className="text-[14px] text-[#76777b] mb-8">I dati già presenti in anagrafica vengono riutilizzati. Non devi reinserirli.</p>
+
           <div className="space-y-4">
-            {clientIds.map(id => {
-              const c = getClientById(id);
+            {clientIds.map((clientId) => {
+              const client = getClientById(clientId);
               return (
-                <div key={id} className="p-4 border border-[#c7c6ca] bg-[#faf9f6] flex items-center justify-between">
-                  <div>
-                    <div className="text-[14px] font-bold text-[#1a1c1a]">{c?.firstName} {c?.lastName}</div>
-                    <div className="text-[12px] text-[#76777b]">{c?.email} · {c?.phone}</div>
+                <div key={clientId} className="p-4 border border-[#c7c6ca] bg-[#faf9f6] flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="text-[14px] font-bold text-[#1a1c1a] truncate">
+                      {client?.entityType === 'azienda' ? client.companyName : `${client?.firstName || ''} ${client?.lastName || ''}`}
+                    </div>
+                    <div className="text-[12px] text-[#76777b] break-all">{client?.email || 'Email da completare'} · {client?.phone || 'Telefono da completare'}</div>
                   </div>
-                  <span className="px-2 py-1 bg-[#efeeeb] text-[10px] font-bold uppercase tracking-wider text-[#1a1c1a] border border-[#c7c6ca]">
-                    Proprietario
-                  </span>
+                  {clientIds.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setClientIds((previous) => previous.filter((id) => id !== clientId))}
+                      className="text-[10px] uppercase font-bold text-[#76777b] hover:text-[#a14009] shrink-0"
+                    >
+                      Rimuovi
+                    </button>
+                  )}
                 </div>
-              )
+              );
             })}
-            
-            <button className="w-full p-4 border border-dashed border-[#c7c6ca] text-[#76777b] hover:text-[#1a1c1a] hover:border-[#1a1c1a] transition-colors text-[13px] font-bold uppercase tracking-wider flex items-center justify-center gap-2">
+
+            <button
+              type="button"
+              onClick={addSignatory}
+              className="w-full p-4 border border-dashed border-[#c7c6ca] text-[#76777b] hover:text-[#1a1c1a] hover:border-[#1a1c1a] transition-colors text-[13px] font-bold uppercase tracking-wider flex items-center justify-center gap-2"
+            >
               <span className="material-symbols-outlined text-[18px]">person_add</span>
               Aggiungi soggetto
             </button>
           </div>
-          
+
           <div className="mt-12 flex items-center justify-end">
             <button
-              onClick={handleNext}
-              className="bg-[#1a1c1a] text-white px-8 py-3 text-[12px] uppercase font-bold tracking-widest hover:bg-[#333533] transition-colors"
+              onClick={nextStep}
+              disabled={clientIds.length === 0}
+              className="bg-[#1a1c1a] disabled:opacity-40 disabled:cursor-not-allowed text-white px-8 py-3 text-[12px] uppercase font-bold tracking-widest hover:bg-[#333533] transition-colors"
             >
               Continua
             </button>
           </div>
-        </div>
+        </section>
       )}
 
       {currentStep === 2 && (
-        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <h1 className="text-[32px] font-serif-display font-bold text-[#1a1c1a] mb-2">Confermiamo l&apos;immobile</h1>
-          <p className="text-[14px] text-[#76777b] mb-8">L&apos;immobile associato alla pratica è precompilato.</p>
-          
-          <div className="p-6 border border-[#c7c6ca] bg-[#faf9f6]">
+        <section className="animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <h1 className="text-[30px] sm:text-[32px] font-serif-display font-bold text-[#1a1c1a] mb-2">Confermiamo l&apos;immobile</h1>
+          <p className="text-[14px] text-[#76777b] mb-8">La scheda associata alla pratica è precompilata e rimane un&apos;entità condivisa.</p>
+
+          <div className="p-5 sm:p-6 border border-[#c7c6ca] bg-[#faf9f6]">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-widest text-[#76777b] block mb-1">Tipologia</span>
-                <p className="font-semibold text-[#1a1c1a]">{property?.type}</p>
+                <p className="font-semibold text-[#1a1c1a]">{property?.type || 'Da completare'}</p>
               </div>
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-widest text-[#76777b] block mb-1">Comune</span>
-                <p className="font-semibold text-[#1a1c1a]">{property?.municipality} ({property?.province})</p>
+                <p className="font-semibold text-[#1a1c1a]">{property?.municipality || 'Da completare'} {property?.province ? `(${property.province})` : ''}</p>
               </div>
-              <div className="col-span-2">
+              <div className="sm:col-span-2">
                 <span className="text-[10px] font-bold uppercase tracking-widest text-[#76777b] block mb-1">Indirizzo</span>
-                <p className="font-semibold text-[#1a1c1a]">{property?.address}</p>
+                <p className="font-semibold text-[#1a1c1a]">{property?.address || 'Indirizzo da definire'}</p>
               </div>
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-widest text-[#76777b] block mb-1">Superficie</span>
-                <p className="font-semibold text-[#1a1c1a]">{property?.approximateSurface} m²</p>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-[#76777b] block mb-1">Superficie indicativa dichiarata</span>
+                <p className="font-semibold text-[#1a1c1a]">{property?.approximateSurface ? `~${property.approximateSurface} m²` : 'Non indicata'}</p>
+              </div>
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-[#76777b] block mb-1">Prezzo richiesto</span>
+                <p className="font-semibold text-[#1a1c1a]">{property?.askingPrice ? `€ ${property.askingPrice.toLocaleString('it-IT')}` : 'Non indicato'}</p>
               </div>
             </div>
           </div>
-          
-          <div className="mt-12 flex items-center justify-between">
-            <button onClick={handleSaveDraft} className="text-[12px] font-bold text-[#76777b] hover:text-[#1a1c1a] underline">Salva bozza</button>
+
+          <div className="mt-12 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-4">
+            <button onClick={handleSaveDraft} className="text-[12px] font-bold text-[#76777b] hover:text-[#1a1c1a] underline self-start">Salva bozza</button>
             <button
-              onClick={handleNext}
-              className="bg-[#1a1c1a] text-white px-8 py-3 text-[12px] uppercase font-bold tracking-widest hover:bg-[#333533] transition-colors"
+              onClick={nextStep}
+              disabled={!canProceed}
+              className="bg-[#1a1c1a] disabled:opacity-40 disabled:cursor-not-allowed text-white px-8 py-3 text-[12px] uppercase font-bold tracking-widest hover:bg-[#333533] transition-colors"
             >
               Continua
             </button>
           </div>
-        </div>
+        </section>
       )}
 
       {currentStep === 3 && (
-        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <h1 className="text-[32px] font-serif-display font-bold text-[#1a1c1a] mb-2">Definiamo l&apos;incarico</h1>
-          <p className="text-[14px] text-[#76777b] mb-8">Inserisci le condizioni dell&apos;accordo.</p>
-          
+        <section className="animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <h1 className="text-[30px] sm:text-[32px] font-serif-display font-bold text-[#1a1c1a] mb-2">Definiamo l&apos;incarico</h1>
+          <p className="text-[14px] text-[#76777b] mb-8">Inserisci le condizioni concordate. Il prezzo è quello richiesto dal proprietario, non una valutazione Mandato Ready.</p>
+
           <div className="space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-[11px] uppercase tracking-wider font-bold text-[#1a1c1a] mb-2">Tipo di incarico</label>
-                <select value={mandateType} onChange={e => setMandateType(e.target.value)} className="w-full p-3 border border-[#c7c6ca] bg-white">
+              <label className="block text-[11px] uppercase tracking-wider font-bold text-[#1a1c1a]">
+                Tipo di incarico
+                <select value={mandateType} onChange={(event) => setMandateType(event.target.value)} className="mt-2 w-full p-3 border border-[#c7c6ca] bg-white font-normal normal-case tracking-normal">
                   <option>Vendita</option>
                   <option>Locazione</option>
                   <option>Altro</option>
                 </select>
-              </div>
-              <div>
-                <label className="block text-[11px] uppercase tracking-wider font-bold text-[#1a1c1a] mb-2">Esclusiva</label>
-                <select value={exclusivity} onChange={e => setExclusivity(e.target.value)} className="w-full p-3 border border-[#c7c6ca] bg-white">
+              </label>
+              <label className="block text-[11px] uppercase tracking-wider font-bold text-[#1a1c1a]">
+                Esclusiva
+                <select value={exclusivity} onChange={(event) => setExclusivity(event.target.value)} className="mt-2 w-full p-3 border border-[#c7c6ca] bg-white font-normal normal-case tracking-normal">
                   <option>In esclusiva</option>
                   <option>Non in esclusiva</option>
                   <option>Da definire</option>
                 </select>
-              </div>
+              </label>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 border-t border-[#c7c6ca] pt-6">
-              <div>
-                <label className="block text-[11px] uppercase tracking-wider font-bold text-[#1a1c1a] mb-2">Data Inizio</label>
-                <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full p-3 border border-[#c7c6ca] bg-white" />
-              </div>
-              <div>
-                <label className="block text-[11px] uppercase tracking-wider font-bold text-[#1a1c1a] mb-2">Data Scadenza</label>
-                <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full p-3 border border-[#c7c6ca] bg-white" />
-              </div>
+              <label className="block text-[11px] uppercase tracking-wider font-bold text-[#1a1c1a]">
+                Data inizio
+                <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className="mt-2 w-full p-3 border border-[#c7c6ca] bg-white font-normal" />
+              </label>
+              <label className="block text-[11px] uppercase tracking-wider font-bold text-[#1a1c1a]">
+                Data scadenza
+                <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} className="mt-2 w-full p-3 border border-[#c7c6ca] bg-white font-normal" />
+              </label>
             </div>
 
-            <div className="border-t border-[#c7c6ca] pt-6">
-              <label className="block text-[11px] uppercase tracking-wider font-bold text-[#1a1c1a] mb-2">Prezzo Richiesto dal Proprietario (€)</label>
-              <input type="number" value={askingPrice} onChange={e => setAskingPrice(Number(e.target.value))} className="w-full p-3 border border-[#c7c6ca] bg-white text-[16px] font-mono" />
-            </div>
+            <label className="block text-[11px] uppercase tracking-wider font-bold text-[#1a1c1a] border-t border-[#c7c6ca] pt-6">
+              Prezzo richiesto dal proprietario (€)
+              <input type="number" min="0" value={askingPrice || ''} onChange={(event) => setAskingPrice(Number(event.target.value) || 0)} className="mt-2 w-full p-3 border border-[#c7c6ca] bg-white text-[16px] font-mono font-normal" placeholder="Opzionale" />
+            </label>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 border-t border-[#c7c6ca] pt-6">
-              <div>
-                <label className="block text-[11px] uppercase tracking-wider font-bold text-[#1a1c1a] mb-2">Tipo Provvigione</label>
-                <select value={commissionType} onChange={e => setCommissionType(e.target.value)} className="w-full p-3 border border-[#c7c6ca] bg-white">
+              <label className="block text-[11px] uppercase tracking-wider font-bold text-[#1a1c1a]">
+                Tipo provvigione
+                <select value={commissionType} onChange={(event) => setCommissionType(event.target.value)} className="mt-2 w-full p-3 border border-[#c7c6ca] bg-white font-normal normal-case tracking-normal">
                   <option value="percentuale">Percentuale (%)</option>
-                  <option value="fisso">Importo Fisso (€)</option>
+                  <option value="fisso">Importo fisso (€)</option>
                   <option value="da_definire">Da definire</option>
                 </select>
-              </div>
-              <div>
-                <label className="block text-[11px] uppercase tracking-wider font-bold text-[#1a1c1a] mb-2">Valore</label>
-                <input type="text" value={commissionValue} onChange={e => setCommissionValue(e.target.value)} className="w-full p-3 border border-[#c7c6ca] bg-white font-mono" />
-              </div>
+              </label>
+              <label className="block text-[11px] uppercase tracking-wider font-bold text-[#1a1c1a]">
+                Valore provvigione
+                <input type="text" value={commissionValue} onChange={(event) => setCommissionValue(event.target.value)} className="mt-2 w-full p-3 border border-[#c7c6ca] bg-white font-mono font-normal" />
+              </label>
             </div>
-            
-            <div className="border-t border-[#c7c6ca] pt-6">
-              <label className="block text-[11px] uppercase tracking-wider font-bold text-[#1a1c1a] mb-2">Note / Condizioni aggiuntive (Opzionale)</label>
-              <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} className="w-full p-3 border border-[#c7c6ca] bg-white" />
-            </div>
+
+            <label className="block text-[11px] uppercase tracking-wider font-bold text-[#1a1c1a] border-t border-[#c7c6ca] pt-6">
+              Note / condizioni aggiuntive
+              <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} className="mt-2 w-full p-3 border border-[#c7c6ca] bg-white font-normal normal-case tracking-normal" />
+            </label>
+
+            <label className="block text-[11px] uppercase tracking-wider font-bold text-[#1a1c1a]">
+              Clausole personalizzate demo
+              <textarea value={customClauses} onChange={(event) => setCustomClauses(event.target.value)} rows={3} className="mt-2 w-full p-3 border border-[#c7c6ca] bg-white font-normal normal-case tracking-normal" placeholder="Facoltativo. Nessun testo viene considerato validato legalmente da Mandato Ready." />
+            </label>
           </div>
-          
-          <div className="mt-12 flex items-center justify-between">
-            <button onClick={handleSaveDraft} className="text-[12px] font-bold text-[#76777b] hover:text-[#1a1c1a] underline">Salva bozza</button>
-            <button
-              onClick={handleNext}
-              className="bg-[#1a1c1a] text-white px-8 py-3 text-[12px] uppercase font-bold tracking-widest hover:bg-[#333533] transition-colors"
-            >
-              Continua
-            </button>
+
+          <div className="mt-12 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-4">
+            <button onClick={handleSaveDraft} className="text-[12px] font-bold text-[#76777b] hover:text-[#1a1c1a] underline self-start">Salva bozza</button>
+            <button onClick={nextStep} className="bg-[#1a1c1a] text-white px-8 py-3 text-[12px] uppercase font-bold tracking-widest hover:bg-[#333533] transition-colors">Continua</button>
           </div>
-        </div>
+        </section>
       )}
 
       {currentStep === 4 && (
-        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <h1 className="text-[32px] font-serif-display font-bold text-[#1a1c1a] mb-2">Controlla prima di procedere</h1>
-          <p className="text-[14px] text-[#76777b] mb-8">Verifica i dati inseriti. Verrà generata una bozza del documento.</p>
-          
-          <div className="bg-[#faf9f6] border border-[#c7c6ca] p-6 space-y-6">
-            <div>
-              <h3 className="text-[11px] font-bold uppercase tracking-widest text-[#76777b] border-b border-[#c7c6ca] pb-2 mb-3">Parti</h3>
-              {clientIds.map(id => {
-                const c = getClientById(id);
-                return <div key={id} className="text-[14px] font-semibold text-[#1a1c1a]">{c?.firstName} {c?.lastName}</div>;
-              })}
+        <section className="animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <h1 className="text-[30px] sm:text-[32px] font-serif-display font-bold text-[#1a1c1a] mb-2">Controlla prima di procedere</h1>
+          <p className="text-[14px] text-[#76777b] mb-8">La bozza usa i dati condivisi di cliente e immobile. Verifica condizioni e firmatari prima della firma simulata.</p>
+
+          <div className="border border-[#c7c6ca] bg-[#faf9f6] p-5 sm:p-6 space-y-5 text-[13px]">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <div><span className="block text-[10px] uppercase tracking-widest font-bold text-[#76777b]">Incarico</span><strong>{mandateType} · {exclusivity}</strong></div>
+              <div><span className="block text-[10px] uppercase tracking-widest font-bold text-[#76777b]">Durata</span><strong>{startDate} → {endDate}</strong></div>
+              <div><span className="block text-[10px] uppercase tracking-widest font-bold text-[#76777b]">Prezzo richiesto</span><strong>{askingPrice ? `€ ${askingPrice.toLocaleString('it-IT')}` : 'Non indicato'}</strong></div>
+              <div><span className="block text-[10px] uppercase tracking-widest font-bold text-[#76777b]">Provvigione</span><strong>{commissionValue || 'Da definire'} {commissionType === 'percentuale' ? '%' : commissionType === 'fisso' ? '€' : ''}</strong></div>
             </div>
-            
-            <div>
-              <h3 className="text-[11px] font-bold uppercase tracking-widest text-[#76777b] border-b border-[#c7c6ca] pb-2 mb-3">Immobile</h3>
-              <div className="text-[14px] text-[#1a1c1a]">{property?.address}, {property?.municipality} ({property?.type})</div>
+            <div className="pt-4 border-t border-[#c7c6ca]">
+              <span className="block text-[10px] uppercase tracking-widest font-bold text-[#76777b] mb-2">Firmatari</span>
+              <ul className="space-y-1">
+                {buildSignatories().map((signatory) => <li key={signatory.id}>• {signatory.name} — {signatory.role}</li>)}
+              </ul>
             </div>
-            
-            <div>
-              <h3 className="text-[11px] font-bold uppercase tracking-widest text-[#76777b] border-b border-[#c7c6ca] pb-2 mb-3">Condizioni</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-[14px]">
-                <div><span className="text-[#76777b]">Incarico:</span> <span className="font-semibold text-[#1a1c1a]">{mandateType}</span></div>
-                <div><span className="text-[#76777b]">Esclusiva:</span> <span className="font-semibold text-[#1a1c1a]">{exclusivity}</span></div>
-                <div><span className="text-[#76777b]">Dal:</span> <span className="font-mono text-[#1a1c1a]">{startDate}</span></div>
-                <div><span className="text-[#76777b]">Al:</span> <span className="font-mono text-[#1a1c1a]">{endDate}</span></div>
-                <div><span className="text-[#76777b]">Prezzo:</span> <span className="font-mono text-[#1a1c1a]">€ {askingPrice.toLocaleString('it-IT')}</span></div>
-              </div>
-            </div>
-            
-            <div>
-              <h3 className="text-[11px] font-bold uppercase tracking-widest text-[#76777b] border-b border-[#c7c6ca] pb-2 mb-3">Provvigione</h3>
-              <div className="text-[14px] font-mono text-[#1a1c1a]">{commissionValue} {commissionType === 'percentuale' ? '%' : '€'}</div>
-            </div>
-            
-            {notes && (
-              <div>
-                <h3 className="text-[11px] font-bold uppercase tracking-widest text-[#76777b] border-b border-[#c7c6ca] pb-2 mb-3">Note</h3>
-                <div className="text-[14px] text-[#1a1c1a]">{notes}</div>
+            {(notes || customClauses) && (
+              <div className="pt-4 border-t border-[#c7c6ca] text-[#46474a] whitespace-pre-wrap break-words">
+                {notes && <p><strong>Note:</strong> {notes}</p>}
+                {customClauses && <p className="mt-2"><strong>Clausole demo:</strong> {customClauses}</p>}
               </div>
             )}
           </div>
-          
-          <div className="mt-12 flex items-center justify-between">
-            <button onClick={() => setCurrentStep(3)} className="text-[12px] font-bold text-[#76777b] hover:text-[#1a1c1a] underline">Torna a modificare</button>
-            <button
-              onClick={handleGenerate}
-              className="bg-[#a14009] text-white px-8 py-3 text-[12px] uppercase font-bold tracking-widest hover:bg-[#7d2d00] transition-colors"
-            >
-              Genera bozza
-            </button>
+
+          {reviewGenerated && (
+            <div className="mt-5 p-4 border border-[#a14009] bg-[#fff8f4] text-[13px] text-[#5f321d]">
+              Bozza registrata come <strong>Da controllare</strong>. Se i dati sono corretti, approvala per passare alla configurazione della firma simulata.
+            </div>
+          )}
+
+          <div className="mt-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <button onClick={() => setCurrentStep(3)} className="px-5 py-3 border border-[#c7c6ca] text-[11px] uppercase font-bold tracking-wider hover:bg-[#efeeeb]">Modifica condizioni</button>
+            {!reviewGenerated ? (
+              <button onClick={handleGenerateReview} className="px-8 py-3 bg-[#1a1c1a] text-white text-[12px] uppercase font-bold tracking-widest hover:bg-[#333533]">Genera bozza</button>
+            ) : (
+              <button onClick={handleApproveForSigning} className="px-8 py-3 bg-[#a14009] text-white text-[12px] uppercase font-bold tracking-widest hover:bg-[#7d2d00] flex items-center justify-center gap-2">
+                Approva e prepara firma
+                <span className="material-symbols-outlined text-[17px]">arrow_forward</span>
+              </button>
+            )}
           </div>
-        </div>
+        </section>
       )}
     </div>
   );
