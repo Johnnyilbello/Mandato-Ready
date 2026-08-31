@@ -4,121 +4,68 @@ import React from 'react';
 import { useApp } from '@/context/AppContext';
 
 export const ValutazioniView: React.FC = () => {
-  const {
-    properties,
-    clients,
-    openNewPracticeWizard,
-    agencyProfile,
-    setActiveTab,
-  } = useApp();
+  const { properties, setActiveTab } = useApp();
 
   return (
-    <div className="max-w-[1440px] mx-auto px-6 md:px-12 py-8 md:py-12 font-sans">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 pb-6 border-b border-[#c7c6ca] gap-4">
-        <div>
-          <div className="text-[11px] uppercase tracking-widest font-semibold text-[#76777b] mb-1">
-            STIME & ANALISI COMPARATIVA
-          </div>
-          <h1 className="text-[32px] md:text-[40px] font-serif-display font-bold text-[#1a1c1a]">
-            Valutazioni Mandato Ready
-          </h1>
-          <p className="text-[14px] text-[#46474a] mt-1">
-            Indici di prezzo di mercato, valori OMI e comparabili sul territorio di Terrasini, Cinisi e Palermo.
-          </p>
+    <div className="max-w-[1440px] mx-auto px-4 sm:px-6 md:px-12 py-8 md:py-12 font-sans min-w-0">
+      <div className="mb-8 pb-6 border-b border-[#c7c6ca] min-w-0">
+        <div className="text-[11px] uppercase tracking-widest font-semibold text-[#76777b] mb-1">
+          MODULO SEPARATO
         </div>
-
-        <button
-          onClick={() => openNewPracticeWizard()}
-          className="bg-[#1a1c1a] text-white px-6 py-3 text-[12px] uppercase font-bold tracking-widest hover:bg-[#333533] transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm"
-        >
-          <span className="material-symbols-outlined text-[18px]">add_chart</span>
-          Nuova Valutazione
-        </button>
+        <h1 className="text-[32px] md:text-[40px] font-serif-display font-bold text-[#1a1c1a] break-words">
+          Valutazioni
+        </h1>
+        <p className="text-[14px] text-[#46474a] mt-1 max-w-3xl">
+          Il motore di valutazione immobiliare non fa parte di Mandato Ready Phase 1. In questa fase il sistema non calcola valori di mercato, prezzi al m², forbici consigliate o stime automatiche.
+        </p>
       </div>
 
-      {/* Grid of Estimates */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
-        {properties.map((p) => {
-          const owner = clients.find((c) => p.owners.includes(c.id));
-          const pricePerSqm = p.estimatedValue ? Math.round(p.estimatedValue / p.approximateSurface) : 2200;
+      <section className="border-2 border-[#1a1c1a] bg-[#faf9f6] p-5 sm:p-8 max-w-4xl min-w-0">
+        <div className="flex flex-col sm:flex-row sm:items-start gap-4 sm:gap-5 min-w-0">
+          <div className="w-12 h-12 shrink-0 bg-[#1a1c1a] text-white flex items-center justify-center">
+            <span className="material-symbols-outlined text-[26px]">lock_clock</span>
+          </div>
+          <div className="min-w-0 flex-1">
+            <span className="text-[10px] uppercase tracking-widest font-bold text-[#a14009]">NON ATTIVO IN PHASE 1</span>
+            <h2 className="text-[22px] sm:text-[26px] font-serif-display font-bold text-[#1a1c1a] mt-1 break-words">
+              Nessuna valutazione viene generata automaticamente
+            </h2>
+            <p className="text-[13px] sm:text-[14px] text-[#46474a] mt-3 leading-relaxed">
+              Gli immobili continuano a essere gestiti come record condivisi. L’unico dato economico semplice previsto nella scheda Immobile è l’eventuale “Prezzo richiesto dal proprietario”, che resta un dato dichiarato e non una valutazione Mandato Ready.
+            </p>
 
-          return (
-            <div key={p.id} className="bg-[#faf9f6] border border-[#c7c6ca] p-6 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 bg-[#efeeeb] border border-[#c7c6ca] text-[#1a1c1a]">
-                    {p.type}
-                  </span>
-                  <span className="text-[12px] font-mono text-[#a14009] font-bold">
-                    € {pricePerSqm} / m²
-                  </span>
-                </div>
-
-                <h3 className="text-[18px] font-serif-display font-bold text-[#1a1c1a]">
-                  {p.address}
-                </h3>
-                <p className="text-[13px] text-[#76777b] mb-4">
-                  {p.municipality} ({p.province}) · ~{p.approximateSurface} m²
-                </p>
-
-                <div className="bg-[#f4f3f1] p-4 border border-[#c7c6ca] space-y-2">
-                  <div className="flex justify-between text-[13px]">
-                    <span className="text-[#76777b]">Valore stimato:</span>
-                    <strong className="text-[#1a1c1a] font-mono">
-                      € {p.estimatedValue ? p.estimatedValue.toLocaleString('it-IT') : '250.000'}
-                    </strong>
-                  </div>
-                  <div className="flex justify-between text-[13px]">
-                    <span className="text-[#76777b]">Forbice consigliata:</span>
-                    <span className="text-[#1a1c1a] font-mono text-[12px]">
-                      -5% / +3%
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-[13px]">
-                    <span className="text-[#76777b]">Proprietario:</span>
-                    <span className="text-[#1a1c1a] font-medium truncate">
-                      {owner ? `${owner.firstName} ${owner.lastName}` : 'N.D.'}
-                    </span>
-                  </div>
-                </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-6">
+              <div className="border border-[#c7c6ca] bg-white p-4 min-w-0">
+                <span className="text-[10px] uppercase tracking-wider font-bold text-[#76777b]">Immobili in archivio</span>
+                <strong className="block text-[24px] font-mono mt-1">{properties.length}</strong>
+                <p className="text-[11px] text-[#76777b] mt-1">Record gestiti senza stima automatica.</p>
               </div>
-
-              <div className="mt-6 pt-4 border-t border-[#c7c6ca]">
-                <button
-                  onClick={() => openNewPracticeWizard('existing_client', owner?.id)}
-                  className="w-full py-2 border border-[#1a1c1a] text-[#1a1c1a] hover:bg-[#1a1c1a] hover:text-white transition-colors text-[11px] uppercase font-bold tracking-widest cursor-pointer"
-                >
-                  Trasforma in Mandato
-                </button>
+              <div className="border border-[#c7c6ca] bg-white p-4 min-w-0">
+                <span className="text-[10px] uppercase tracking-wider font-bold text-[#76777b]">Stato modulo</span>
+                <strong className="block text-[16px] mt-2">Differito</strong>
+                <p className="text-[11px] text-[#76777b] mt-1">Eventuale sviluppo futuro, fuori dal perimetro Phase 1.</p>
               </div>
             </div>
-          );
-        })}
-      </div>
 
-      {/* Agency Profile & Settings Link */}
-      <div className="border-t border-[#c7c6ca] pt-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[#faf9f6] border p-6">
-        <div>
-          <span className="text-[11px] uppercase tracking-widest font-semibold text-[#a14009] block mb-0.5">
-            CONFIGURAZIONE & METODO DI LAVORO
-          </span>
-          <h3 className="text-[18px] font-serif-display font-bold text-[#1a1c1a]">
-            {agencyProfile.agencyName} · {agencyProfile.city}
-          </h3>
-          <p className="text-[13px] text-[#46474a]">
-            Referente: {agencyProfile.agentName} · Modulo AML: {agencyProfile.workPreferences?.enableAmlModule ? 'Attivo' : 'Disattivato'}
-          </p>
+            <div className="flex flex-col sm:flex-row gap-3 mt-6 pt-5 border-t border-[#c7c6ca]">
+              <button
+                type="button"
+                onClick={() => setActiveTab('immobili')}
+                className="px-5 py-3 bg-[#1a1c1a] text-white text-[11px] uppercase font-bold tracking-widest hover:bg-[#333533]"
+              >
+                Vai agli immobili
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('pratiche')}
+                className="px-5 py-3 border border-[#1a1c1a] text-[#1a1c1a] text-[11px] uppercase font-bold tracking-widest hover:bg-[#efeeeb]"
+              >
+                Vai alle pratiche
+              </button>
+            </div>
+          </div>
         </div>
-
-        <button
-          onClick={() => setActiveTab('impostazioni')}
-          className="px-5 py-2.5 bg-[#1a1c1a] text-white hover:bg-[#333533] text-[11px] uppercase font-bold tracking-widest transition-colors cursor-pointer shrink-0 flex items-center gap-2"
-        >
-          <span className="material-symbols-outlined text-[16px]">settings</span>
-          Apri Impostazioni
-        </button>
-      </div>
+      </section>
     </div>
   );
 };
