@@ -1,37 +1,38 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import {
-  Client,
-  Property,
-  Opportunity,
-  Practice,
-  DocumentItem,
-  Task,
-  Deadline,
-  Appointment,
-  WaitingItem,
-  DocumentStatus,
-  PracticeNote,
   AgencyProfile,
-  OnboardingDraft,
-  StartChoice,
+  AmlDossier,
+  Appointment,
+  Client,
+  Deadline,
+  DocumentItem,
+  DocumentStatus,
   InteractiveDemoStage,
   Mandate,
+  OnboardingDraft,
+  Opportunity,
+  Practice,
+  PracticeNote,
+  Property,
   SigningProcess,
-  AmlDossier,
+  StartChoice,
+  Task,
+  WaitingItem,
 } from '@/lib/types';
 import {
+  INITIAL_APPOINTMENTS,
   INITIAL_CLIENTS,
-  INITIAL_PROPERTIES,
+  INITIAL_DEADLINES,
+  INITIAL_DOCUMENTS,
   INITIAL_OPPORTUNITIES,
   INITIAL_PRACTICES,
-  INITIAL_DOCUMENTS,
+  INITIAL_PROPERTIES,
   INITIAL_TASKS,
-  INITIAL_DEADLINES,
-  INITIAL_APPOINTMENTS,
   INITIAL_WAITING_ITEMS,
 } from '@/lib/sampleData';
+import { prototypeStorage } from '@/lib/storage';
 
 export type NavigationTab =
   | 'oggi'
@@ -49,8 +50,20 @@ export type NavigationTab =
   | 'aml_wizard'
   | 'firma_process';
 
+type PracticeSubTab = 'dettagli' | 'documenti' | 'appuntamenti' | 'note' | 'aml';
+type WizardPreset = { mode?: 'opportunity' | 'existing_client' | 'new_client'; sourceId?: string } | null;
+type ClientModalState = {
+  prefill?: Partial<Client>;
+  editClientId?: string;
+  onSaveCallback?: (client: Client) => void;
+} | null;
+type PropertyModalState = {
+  prefill?: Partial<Property>;
+  editPropertyId?: string;
+  onSaveCallback?: (property: Property) => void;
+} | null;
+
 interface AppContextType {
-  // Navigation State
   activeTab: NavigationTab;
   setActiveTab: (tab: NavigationTab) => void;
   selectedPracticeId: string | null;
@@ -61,12 +74,11 @@ interface AppContextType {
   setSelectedClientId: (id: string | null) => void;
   selectedPropertyId: string | null;
   setSelectedPropertyId: (id: string | null) => void;
-  practiceActiveSubTab: 'dettagli' | 'documenti' | 'appuntamenti' | 'note' | 'aml';
-  setPracticeActiveSubTab: (tab: 'dettagli' | 'documenti' | 'appuntamenti' | 'note' | 'aml') => void;
+  practiceActiveSubTab: PracticeSubTab;
+  setPracticeActiveSubTab: (tab: PracticeSubTab) => void;
   focusedPracticeSection: string | null;
   setFocusedPracticeSection: (section: string | null) => void;
 
-  // Data Collections
   clients: Client[];
   properties: Property[];
   opportunities: Opportunity[];
@@ -80,7 +92,6 @@ interface AppContextType {
   signingProcesses: SigningProcess[];
   amlDossiers: AmlDossier[];
 
-  // Helper getters
   getClientById: (id?: string) => Client | undefined;
   getPropertyById: (id?: string) => Property | undefined;
   getPracticeById: (id?: string) => Practice | undefined;
@@ -91,7 +102,6 @@ interface AppContextType {
   getSigningProcessByPracticeId: (practiceId: string) => SigningProcess | undefined;
   getAmlDossierByPracticeId: (practiceId: string) => AmlDossier | undefined;
 
-  // Actions
   updateMandate: (mandate: Partial<Mandate> & { practiceId: string }) => void;
   updateSigningProcess: (process: Partial<SigningProcess> & { practiceId: string }) => void;
   updateAmlDossier: (dossier: Partial<AmlDossier> & { practiceId: string }) => void;
@@ -123,16 +133,16 @@ interface AppContextType {
   ) => void;
   toggleDeadline: (deadlineId: string) => void;
   addNewClient: (clientData: Omit<Client, 'id' | 'createdAt'>) => Client;
+  updateClient: (clientId: string, updates: Partial<Omit<Client, 'id' | 'createdAt'>>) => Client | undefined;
   addNewProperty: (propertyData: Omit<Property, 'id'>) => Property;
+  updateProperty: (propertyId: string, updates: Partial<Omit<Property, 'id'>>) => Property | undefined;
 
-  // Navigation shortcuts
-  openPracticeDetail: (practiceId: string, focusSection?: string, subTab?: 'dettagli' | 'documenti' | 'appuntamenti' | 'note' | 'aml') => void;
+  openPracticeDetail: (practiceId: string, focusSection?: string, subTab?: PracticeSubTab) => void;
   closePracticeDetail: () => void;
   openOpportunityDetail: (opportunityId: string) => void;
   closeOpportunityDetail: () => void;
   openNewPracticeWizard: (presetMode?: 'opportunity' | 'existing_client' | 'new_client', sourceId?: string) => void;
 
-  // Agency Profile & Onboarding State
   agencyProfile: AgencyProfile;
   updateAgencyProfile: (updates: Partial<AgencyProfile>) => void;
   onboardingCompleted: boolean;
@@ -149,41 +159,38 @@ interface AppContextType {
   isHintDismissed: (hintId: string) => boolean;
   seedCoherentDemoData: () => void;
 
-  // Prototype / Demo utilities
-  wizardPreset: { mode?: 'opportunity' | 'existing_client' | 'new_client'; sourceId?: string } | null;
-  setWizardPreset: (preset: { mode?: 'opportunity' | 'existing_client' | 'new_client'; sourceId?: string } | null) => void;
+  wizardPreset: WizardPreset;
+  setWizardPreset: (preset: WizardPreset) => void;
   resetDemoData: () => void;
   seedNewOpportunity: () => void;
 
-  // Global Creation Modals
   isQuickAddOpen: boolean;
   openQuickAdd: () => void;
   closeQuickAdd: () => void;
 
   isNewClientModalOpen: boolean;
-  newClientModalState: { prefill?: Partial<Client>; onSaveCallback?: (c: Client) => void } | null;
-  openNewClientModal: (prefill?: Partial<Client>, callback?: (c: Client) => void) => void;
+  newClientModalState: ClientModalState;
+  openNewClientModal: (prefill?: Partial<Client>, callback?: (client: Client) => void) => void;
+  openEditClientModal: (clientId: string) => void;
   closeNewClientModal: () => void;
 
   isNewPropertyModalOpen: boolean;
-  newPropertyModalState: { prefill?: Partial<Property>; onSaveCallback?: (p: Property) => void } | null;
-  openNewPropertyModal: (prefill?: Partial<Property>, callback?: (p: Property) => void) => void;
+  newPropertyModalState: PropertyModalState;
+  openNewPropertyModal: (prefill?: Partial<Property>, callback?: (property: Property) => void) => void;
+  openEditPropertyModal: (propertyId: string) => void;
   closeNewPropertyModal: () => void;
 
-  // Help System & Help Mode
   isHelpModeActive: boolean;
-  setIsHelpModeActive: (val: boolean) => void;
+  setIsHelpModeActive: (value: boolean) => void;
   toggleHelpMode: () => void;
   isHelpPanelOpen: boolean;
-  setIsHelpPanelOpen: (val: boolean) => void;
+  setIsHelpPanelOpen: (value: boolean) => void;
   toggleHelpPanel: () => void;
   contextualHelpPreference: 'all' | 'reduced';
-  setContextualHelpPreference: (val: 'all' | 'reduced') => void;
+  setContextualHelpPreference: (value: 'all' | 'reduced') => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
-
-const STORAGE_KEY_PREFIX = 'mandato_ready_v1_';
 
 export const DEFAULT_AGENCY_PROFILE: AgencyProfile = {
   agencyName: 'Studio Immobiliare Duomo',
@@ -196,7 +203,7 @@ export const DEFAULT_AGENCY_PROFILE: AgencyProfile = {
     enableAmlModule: true,
     practiceTypes: ['Compravendita', 'Locazione', 'Valutazione e Incarico'],
     defaultDocs: [
-      'Documento d\'identità e Codice Fiscale',
+      "Documento d'identità e Codice Fiscale",
       'Visura catastale aggiornata',
       'Planimetria catastale conforme',
       'Atto di provenienza (rogito / successione)',
@@ -216,31 +223,24 @@ export const DEFAULT_ONBOARDING_DRAFT: OnboardingDraft = {
   startChoice: null,
   enableAmlModule: true,
   practiceTypes: ['Compravendita', 'Locazione', 'Valutazione e Incarico'],
-  defaultDocs: [
-    'Documento d\'identità e Codice Fiscale',
-    'Visura catastale aggiornata',
-    'Planimetria catastale conforme',
-    'Atto di provenienza (rogito / successione)',
-    'Attestato di Prestazione Energetica (APE)',
-    'Conformità edilizia/urbanistica',
-  ],
+  defaultDocs: [...DEFAULT_AGENCY_PROFILE.workPreferences.defaultDocs],
 };
 
 let idCounter = 1000;
 const generateUniqueId = (prefix: string) => {
   idCounter += 1;
-  return `${prefix}-${idCounter}`;
+  return `${prefix}-${Date.now().toString(36)}-${idCounter.toString(36)}`;
 };
 
-const getInitialState = <T,>(key: string, fallback: T): T => {
-  if (typeof window === 'undefined') return fallback;
-  try {
-    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}${key}`);
-    return saved ? JSON.parse(saved) : fallback;
-  } catch {
-    return fallback;
-  }
-};
+const getInitialState = <T,>(key: string, fallback: T): T => prototypeStorage.read(key, fallback);
+const isDocumentReady = (status: DocumentStatus) => status === 'Disponibile' || status === 'Firmato';
+const getAgentInitials = (name: string) =>
+  name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'MR';
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [activeTab, setActiveTab] = useState<NavigationTab>('oggi');
@@ -248,16 +248,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [selectedOpportunityId, setSelectedOpportunityId] = useState<string | null>('opp-1');
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
-  const [practiceActiveSubTab, setPracticeActiveSubTab] = useState<
-    'dettagli' | 'documenti' | 'appuntamenti' | 'note' | 'aml'
-  >('dettagli');
+  const [practiceActiveSubTab, setPracticeActiveSubTab] = useState<PracticeSubTab>('dettagli');
   const [focusedPracticeSection, setFocusedPracticeSection] = useState<string | null>(null);
-  const [wizardPreset, setWizardPreset] = useState<{
-    mode?: 'opportunity' | 'existing_client' | 'new_client';
-    sourceId?: string;
-  } | null>(null);
+  const [wizardPreset, setWizardPreset] = useState<WizardPreset>(null);
 
-  // Onboarding and Agency state with persistence
   const [onboardingCompleted, setOnboardingCompleted] = useState<boolean>(() =>
     getInitialState('onboarding_completed', true)
   );
@@ -267,91 +261,56 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [onboardingDraft, setOnboardingDraft] = useState<OnboardingDraft>(() =>
     getInitialState('onboarding_draft', DEFAULT_ONBOARDING_DRAFT)
   );
-  const [dismissedHints, setDismissedHints] = useState<string[]>(() =>
-    getInitialState('dismissed_hints', [])
-  );
+  const [dismissedHints, setDismissedHints] = useState<string[]>(() => getInitialState('dismissed_hints', []));
   const [interactiveDemoStage, setInteractiveDemoStage] = useState<InteractiveDemoStage>(null);
+  const [isHelpModeActive, setIsHelpModeActive] = useState<boolean>(() => getInitialState('help_mode_active', false));
+  const [isHelpPanelOpen, setIsHelpPanelOpen] = useState(false);
 
-  // Contextual Help and Help Mode state
-  const [isHelpModeActive, setIsHelpModeActive] = useState<boolean>(() =>
-    getInitialState('help_mode_active', false)
-  );
-  const [isHelpPanelOpen, setIsHelpPanelOpen] = useState<boolean>(false);
+  const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
+  const [isNewClientModalOpen, setIsNewClientModalOpen] = useState(false);
+  const [newClientModalState, setNewClientModalState] = useState<ClientModalState>(null);
+  const [isNewPropertyModalOpen, setIsNewPropertyModalOpen] = useState(false);
+  const [newPropertyModalState, setNewPropertyModalState] = useState<PropertyModalState>(null);
 
-  // Global Creation Modals State
-  const [isQuickAddOpen, setIsQuickAddOpen] = useState<boolean>(false);
-  const [isNewClientModalOpen, setIsNewClientModalOpen] = useState<boolean>(false);
-  const [newClientModalState, setNewClientModalState] = useState<{
-    prefill?: Partial<Client>;
-    onSaveCallback?: (c: Client) => void;
-  } | null>(null);
-
-  const [isNewPropertyModalOpen, setIsNewPropertyModalOpen] = useState<boolean>(false);
-  const [newPropertyModalState, setNewPropertyModalState] = useState<{
-    prefill?: Partial<Property>;
-    onSaveCallback?: (p: Property) => void;
-  } | null>(null);
-
-  const openQuickAdd = useCallback(() => setIsQuickAddOpen(true), []);
-  const closeQuickAdd = useCallback(() => setIsQuickAddOpen(false), []);
-
-  const openNewClientModal = useCallback((prefill?: Partial<Client>, callback?: (c: Client) => void) => {
-    setNewClientModalState({ prefill, onSaveCallback: callback });
-    setIsNewClientModalOpen(true);
-  }, []);
-
-  const closeNewClientModal = useCallback(() => {
-    setIsNewClientModalOpen(false);
-    setNewClientModalState(null);
-  }, []);
-
-  const openNewPropertyModal = useCallback((prefill?: Partial<Property>, callback?: (p: Property) => void) => {
-    setNewPropertyModalState({ prefill, onSaveCallback: callback });
-    setIsNewPropertyModalOpen(true);
-  }, []);
-
-  const closeNewPropertyModal = useCallback(() => {
-    setIsNewPropertyModalOpen(false);
-    setNewPropertyModalState(null);
-  }, []);
-
-  // Entities with local persistence
   const [clients, setClients] = useState<Client[]>(() => getInitialState('clients', INITIAL_CLIENTS));
   const [properties, setProperties] = useState<Property[]>(() => getInitialState('properties', INITIAL_PROPERTIES));
-  const [opportunities, setOpportunities] = useState<Opportunity[]>(() => getInitialState('opportunities', INITIAL_OPPORTUNITIES));
+  const [opportunities, setOpportunities] = useState<Opportunity[]>(() =>
+    getInitialState('opportunities', INITIAL_OPPORTUNITIES)
+  );
   const [practices, setPractices] = useState<Practice[]>(() => getInitialState('practices', INITIAL_PRACTICES));
   const [documents, setDocuments] = useState<DocumentItem[]>(() => getInitialState('documents', INITIAL_DOCUMENTS));
   const [tasks, setTasks] = useState<Task[]>(() => getInitialState('tasks', INITIAL_TASKS));
   const [deadlines, setDeadlines] = useState<Deadline[]>(() => getInitialState('deadlines', INITIAL_DEADLINES));
-  const [appointments, setAppointments] = useState<Appointment[]>(() => getInitialState('appointments', INITIAL_APPOINTMENTS));
-  const [waitingItems, setWaitingItems] = useState<WaitingItem[]>(() => getInitialState('waiting_items', INITIAL_WAITING_ITEMS));
+  const [appointments, setAppointments] = useState<Appointment[]>(() =>
+    getInitialState('appointments', INITIAL_APPOINTMENTS)
+  );
+  const [waitingItems, setWaitingItems] = useState<WaitingItem[]>(() =>
+    getInitialState('waiting_items', INITIAL_WAITING_ITEMS)
+  );
   const [mandates, setMandates] = useState<Mandate[]>(() => getInitialState('mandates', []));
-  const [signingProcesses, setSigningProcesses] = useState<SigningProcess[]>(() => getInitialState('signing_processes', []));
+  const [signingProcesses, setSigningProcesses] = useState<SigningProcess[]>(() =>
+    getInitialState('signing_processes', [])
+  );
   const [amlDossiers, setAmlDossiers] = useState<AmlDossier[]>(() => getInitialState('aml_dossiers', []));
 
-  // Save to localStorage whenever state updates
   useEffect(() => {
-    try {
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}clients`, JSON.stringify(clients));
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}properties`, JSON.stringify(properties));
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}opportunities`, JSON.stringify(opportunities));
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}practices`, JSON.stringify(practices));
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}documents`, JSON.stringify(documents));
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}tasks`, JSON.stringify(tasks));
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}deadlines`, JSON.stringify(deadlines));
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}appointments`, JSON.stringify(appointments));
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}waiting_items`, JSON.stringify(waitingItems));
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}mandates`, JSON.stringify(mandates));
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}signing_processes`, JSON.stringify(signingProcesses));
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}aml_dossiers`, JSON.stringify(amlDossiers));
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}agency_profile`, JSON.stringify(agencyProfile));
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}onboarding_completed`, JSON.stringify(onboardingCompleted));
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}onboarding_draft`, JSON.stringify(onboardingDraft));
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}dismissed_hints`, JSON.stringify(dismissedHints));
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}help_mode_active`, JSON.stringify(isHelpModeActive));
-    } catch {
-      // fallback
-    }
+    prototypeStorage.write('clients', clients);
+    prototypeStorage.write('properties', properties);
+    prototypeStorage.write('opportunities', opportunities);
+    prototypeStorage.write('practices', practices);
+    prototypeStorage.write('documents', documents);
+    prototypeStorage.write('tasks', tasks);
+    prototypeStorage.write('deadlines', deadlines);
+    prototypeStorage.write('appointments', appointments);
+    prototypeStorage.write('waiting_items', waitingItems);
+    prototypeStorage.write('mandates', mandates);
+    prototypeStorage.write('signing_processes', signingProcesses);
+    prototypeStorage.write('aml_dossiers', amlDossiers);
+    prototypeStorage.write('agency_profile', agencyProfile);
+    prototypeStorage.write('onboarding_completed', onboardingCompleted);
+    prototypeStorage.write('onboarding_draft', onboardingDraft);
+    prototypeStorage.write('dismissed_hints', dismissedHints);
+    prototypeStorage.write('help_mode_active', isHelpModeActive);
   }, [
     clients,
     properties,
@@ -362,153 +321,142 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     deadlines,
     appointments,
     waitingItems,
+    mandates,
+    signingProcesses,
+    amlDossiers,
     agencyProfile,
     onboardingCompleted,
     onboardingDraft,
     dismissedHints,
     isHelpModeActive,
-    mandates,
-    signingProcesses,
-    amlDossiers
   ]);
 
-  // Agency & Onboarding handlers
+  const openQuickAdd = useCallback(() => setIsQuickAddOpen(true), []);
+  const closeQuickAdd = useCallback(() => setIsQuickAddOpen(false), []);
+
+  const openNewClientModal = useCallback((prefill?: Partial<Client>, callback?: (client: Client) => void) => {
+    setNewClientModalState({ prefill, onSaveCallback: callback });
+    setIsNewClientModalOpen(true);
+  }, []);
+
+  const openEditClientModal = useCallback(
+    (clientId: string) => {
+      const client = clients.find((item) => item.id === clientId);
+      if (!client) return;
+      setNewClientModalState({ prefill: client, editClientId: client.id });
+      setIsNewClientModalOpen(true);
+    },
+    [clients]
+  );
+
+  const closeNewClientModal = useCallback(() => {
+    setIsNewClientModalOpen(false);
+    setNewClientModalState(null);
+  }, []);
+
+  const openNewPropertyModal = useCallback((prefill?: Partial<Property>, callback?: (property: Property) => void) => {
+    setNewPropertyModalState({ prefill, onSaveCallback: callback });
+    setIsNewPropertyModalOpen(true);
+  }, []);
+
+  const openEditPropertyModal = useCallback(
+    (propertyId: string) => {
+      const property = properties.find((item) => item.id === propertyId);
+      if (!property) return;
+      setNewPropertyModalState({ prefill: property, editPropertyId: property.id });
+      setIsNewPropertyModalOpen(true);
+    },
+    [properties]
+  );
+
+  const closeNewPropertyModal = useCallback(() => {
+    setIsNewPropertyModalOpen(false);
+    setNewPropertyModalState(null);
+  }, []);
+
   const updateAgencyProfile = useCallback((updates: Partial<AgencyProfile>) => {
-    setAgencyProfile((prev) => {
-      const next = { ...prev, ...updates };
-      try {
-        localStorage.setItem(`${STORAGE_KEY_PREFIX}agency_profile`, JSON.stringify(next));
-      } catch {}
-      return next;
-    });
+    setAgencyProfile((previous) => ({ ...previous, ...updates }));
   }, []);
 
   const updateOnboardingDraft = useCallback((updates: Partial<OnboardingDraft>) => {
-    setOnboardingDraft((prev) => {
-      const next = { ...prev, ...updates };
-      try {
-        localStorage.setItem(`${STORAGE_KEY_PREFIX}onboarding_draft`, JSON.stringify(next));
-      } catch {}
-      return next;
-    });
+    setOnboardingDraft((previous) => ({ ...previous, ...updates }));
   }, []);
 
-  const completeOnboarding = useCallback((finalChoice?: StartChoice) => {
-    const choice = finalChoice || onboardingDraft.startChoice || 'explore_demo';
-    
-    // Save agency profile from draft if filled
-    if (onboardingDraft.agencyName || onboardingDraft.agentName) {
-      const updatedProfile: AgencyProfile = {
-        agencyName: onboardingDraft.agencyName || DEFAULT_AGENCY_PROFILE.agencyName,
-        agentName: onboardingDraft.agentName || DEFAULT_AGENCY_PROFILE.agentName,
-        phone: onboardingDraft.phone || DEFAULT_AGENCY_PROFILE.phone,
-        email: onboardingDraft.email || DEFAULT_AGENCY_PROFILE.email,
-        city: onboardingDraft.city || DEFAULT_AGENCY_PROFILE.city,
-        logoInitials: (onboardingDraft.agencyName || 'MR')
-          .split(' ')
-          .slice(0, 2)
-          .map((n) => n[0])
-          .join('')
-          .toUpperCase(),
-        workPreferences: {
-          enableAmlModule: onboardingDraft.enableAmlModule,
-          practiceTypes: onboardingDraft.practiceTypes.length > 0 ? onboardingDraft.practiceTypes : DEFAULT_AGENCY_PROFILE.workPreferences.practiceTypes,
-          defaultDocs: onboardingDraft.defaultDocs.length > 0 ? onboardingDraft.defaultDocs : DEFAULT_AGENCY_PROFILE.workPreferences.defaultDocs,
-        },
-      };
-      setAgencyProfile(updatedProfile);
-      try {
-        localStorage.setItem(`${STORAGE_KEY_PREFIX}agency_profile`, JSON.stringify(updatedProfile));
-      } catch {}
-    }
+  const completeOnboarding = useCallback(
+    (finalChoice?: StartChoice) => {
+      const choice = finalChoice || onboardingDraft.startChoice || 'explore_demo';
 
-    setOnboardingCompleted(true);
-    try {
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}onboarding_completed`, JSON.stringify(true));
-    } catch {}
-
-    // Direct routing based on choice
-    if (choice === 'new_practice') {
-      setWizardPreset(null);
-      setActiveTab('nuova_pratica');
-    } else if (choice === 'opportunity') {
-      setSelectedOpportunityId('opp-1');
-      setActiveTab('opportunita');
-    } else {
-      // explore_demo: load coherent demo dataset if empty
-      if (practices.length === 0) {
-        setClients(INITIAL_CLIENTS);
-        setProperties(INITIAL_PROPERTIES);
-        setOpportunities(INITIAL_OPPORTUNITIES);
-        setPractices(INITIAL_PRACTICES);
-        setDocuments(INITIAL_DOCUMENTS);
-        setTasks(INITIAL_TASKS);
-        setDeadlines(INITIAL_DEADLINES);
-        setAppointments(INITIAL_APPOINTMENTS);
-        setWaitingItems(INITIAL_WAITING_ITEMS);
+      if (onboardingDraft.agencyName || onboardingDraft.agentName) {
+        const agencyName = onboardingDraft.agencyName || DEFAULT_AGENCY_PROFILE.agencyName;
+        const agentName = onboardingDraft.agentName || DEFAULT_AGENCY_PROFILE.agentName;
+        setAgencyProfile({
+          agencyName,
+          agentName,
+          phone: onboardingDraft.phone || DEFAULT_AGENCY_PROFILE.phone,
+          email: onboardingDraft.email || DEFAULT_AGENCY_PROFILE.email,
+          city: onboardingDraft.city || DEFAULT_AGENCY_PROFILE.city,
+          logoInitials: getAgentInitials(agencyName),
+          workPreferences: {
+            enableAmlModule: onboardingDraft.enableAmlModule,
+            practiceTypes:
+              onboardingDraft.practiceTypes.length > 0
+                ? onboardingDraft.practiceTypes
+                : DEFAULT_AGENCY_PROFILE.workPreferences.practiceTypes,
+            defaultDocs:
+              onboardingDraft.defaultDocs.length > 0
+                ? onboardingDraft.defaultDocs
+                : DEFAULT_AGENCY_PROFILE.workPreferences.defaultDocs,
+          },
+        });
       }
-      setSelectedPracticeId('prat-1');
-      setInteractiveDemoStage('oggi_task');
-      setActiveTab('oggi');
-    }
-  }, [onboardingDraft, practices.length]);
+
+      setOnboardingCompleted(true);
+
+      if (choice === 'new_practice') {
+        setWizardPreset(null);
+        setActiveTab('nuova_pratica');
+      } else if (choice === 'opportunity') {
+        setSelectedOpportunityId('opp-1');
+        setActiveTab('opportunita');
+      } else {
+        if (practices.length === 0) {
+          setClients(INITIAL_CLIENTS);
+          setProperties(INITIAL_PROPERTIES);
+          setOpportunities(INITIAL_OPPORTUNITIES);
+          setPractices(INITIAL_PRACTICES);
+          setDocuments(INITIAL_DOCUMENTS);
+          setTasks(INITIAL_TASKS);
+          setDeadlines(INITIAL_DEADLINES);
+          setAppointments(INITIAL_APPOINTMENTS);
+          setWaitingItems(INITIAL_WAITING_ITEMS);
+        }
+        setSelectedPracticeId('prat-1');
+        setInteractiveDemoStage('oggi_task');
+        setActiveTab('oggi');
+      }
+    },
+    [onboardingDraft, practices.length]
+  );
 
   const resetOnboarding = useCallback(() => {
     setOnboardingCompleted(false);
     setOnboardingDraft(DEFAULT_ONBOARDING_DRAFT);
-    try {
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}onboarding_completed`, JSON.stringify(false));
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}onboarding_draft`, JSON.stringify(DEFAULT_ONBOARDING_DRAFT));
-    } catch {}
     setActiveTab('oggi');
   }, []);
 
   const dismissHint = useCallback((hintId: string) => {
-    setDismissedHints((prev) => {
-      if (prev.includes(hintId)) return prev;
-      const next = [...prev, hintId];
-      try {
-        localStorage.setItem(`${STORAGE_KEY_PREFIX}dismissed_hints`, JSON.stringify(next));
-      } catch {}
-      return next;
-    });
+    setDismissedHints((previous) => (previous.includes(hintId) ? previous : [...previous, hintId]));
   }, []);
 
-  const resetHints = useCallback(() => {
-    setDismissedHints([]);
-    try {
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}dismissed_hints`, JSON.stringify([]));
-    } catch {}
-  }, []);
-
-  const isHintDismissed = useCallback(
-    (hintId: string) => dismissedHints.includes(hintId),
-    [dismissedHints]
-  );
-
-  const toggleHelpMode = useCallback(() => {
-    setIsHelpModeActive((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem(`${STORAGE_KEY_PREFIX}help_mode_active`, JSON.stringify(next));
-      } catch {}
-      return next;
-    });
-  }, []);
-
-  const toggleHelpPanel = useCallback(() => {
-    setIsHelpPanelOpen((prev) => !prev);
-  }, []);
-
+  const resetHints = useCallback(() => setDismissedHints([]), []);
+  const isHintDismissed = useCallback((hintId: string) => dismissedHints.includes(hintId), [dismissedHints]);
+  const toggleHelpMode = useCallback(() => setIsHelpModeActive((previous) => !previous), []);
+  const toggleHelpPanel = useCallback(() => setIsHelpPanelOpen((previous) => !previous), []);
   const contextualHelpPreference = agencyProfile.workPreferences?.contextualHelpPreference || 'all';
-
   const setContextualHelpPreference = useCallback(
-    (pref: 'all' | 'reduced') => {
+    (preference: 'all' | 'reduced') => {
       updateAgencyProfile({
-        workPreferences: {
-          ...agencyProfile.workPreferences,
-          contextualHelpPreference: pref,
-        },
+        workPreferences: { ...agencyProfile.workPreferences, contextualHelpPreference: preference },
       });
     },
     [agencyProfile.workPreferences, updateAgencyProfile]
@@ -529,289 +477,241 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setActiveTab('oggi');
   }, []);
 
-  // Helpers
-  const getClientById = useCallback(
-    (id?: string) => clients.find((c) => c.id === id),
-    [clients]
-  );
+  const getClientById = useCallback((id?: string) => clients.find((client) => client.id === id), [clients]);
   const getPropertyById = useCallback(
-    (id?: string) => properties.find((p) => p.id === id),
+    (id?: string) => properties.find((property) => property.id === id),
     [properties]
   );
   const getPracticeById = useCallback(
-    (id?: string) => practices.find((p) => p.id === id),
+    (id?: string) => practices.find((practice) => practice.id === id),
     [practices]
   );
   const getOpportunityById = useCallback(
-    (id?: string) => opportunities.find((o) => o.id === id),
+    (id?: string) => opportunities.find((opportunity) => opportunity.id === id),
     [opportunities]
   );
   const getDocumentsByPracticeId = useCallback(
-    (practiceId: string) => documents.filter((d) => d.practiceId === practiceId),
+    (practiceId: string) => documents.filter((document) => document.practiceId === practiceId),
     [documents]
   );
   const getTasksByPracticeId = useCallback(
-    (practiceId: string) => tasks.filter((t) => t.practiceId === practiceId && t.status === 'pending'),
+    (practiceId: string) => tasks.filter((task) => task.practiceId === practiceId && task.status === 'pending'),
     [tasks]
   );
   const getMandateByPracticeId = useCallback(
-    (practiceId: string) => mandates.find((m) => m.practiceId === practiceId),
+    (practiceId: string) => mandates.find((mandate) => mandate.practiceId === practiceId),
     [mandates]
   );
   const getSigningProcessByPracticeId = useCallback(
-    (practiceId: string) => signingProcesses.find((s) => s.practiceId === practiceId),
+    (practiceId: string) => signingProcesses.find((process) => process.practiceId === practiceId),
     [signingProcesses]
   );
   const getAmlDossierByPracticeId = useCallback(
-    (practiceId: string) => amlDossiers.find((a) => a.practiceId === practiceId),
+    (practiceId: string) => amlDossiers.find((dossier) => dossier.practiceId === practiceId),
     [amlDossiers]
   );
 
   const updateMandate = useCallback((mandate: Partial<Mandate> & { practiceId: string }) => {
-    setMandates((prev) => {
-      const existing = prev.find((m) => m.practiceId === mandate.practiceId);
+    setMandates((previous) => {
+      const existing = previous.find((item) => item.practiceId === mandate.practiceId);
       if (existing) {
-        return prev.map((m) => (m.practiceId === mandate.practiceId ? { ...m, ...mandate, updatedAt: new Date().toISOString() } : m));
-      } else {
-        const newMandate: Mandate = {
-          clientIds: [],
-          propertyId: '',
-          mandateType: 'Vendita',
-          exclusivity: 'In esclusiva',
-          startDate: new Date().toISOString().split('T')[0],
-          endDate: '',
-          askingPrice: 0,
-          commissionType: 'percentuale',
-          commissionValue: '3',
-          notes: '',
-          customClauses: '',
-          status: 'Bozza',
-          templateId: 'tpl-demo-incarico-vendita',
-          signatories: [],
-          ...mandate,
-          id: generateUniqueId('mand-'),
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          practiceId: mandate.practiceId,
-        } as Mandate;
-        return [...prev, newMandate];
+        return previous.map((item) =>
+          item.practiceId === mandate.practiceId
+            ? { ...item, ...mandate, updatedAt: new Date().toISOString() }
+            : item
+        );
       }
+
+      const newMandate: Mandate = {
+        clientIds: [],
+        propertyId: '',
+        mandateType: 'Vendita',
+        exclusivity: 'In esclusiva',
+        startDate: new Date().toISOString().split('T')[0],
+        endDate: '',
+        askingPrice: 0,
+        commissionType: 'percentuale',
+        commissionValue: '3',
+        notes: '',
+        customClauses: '',
+        status: 'Bozza',
+        templateId: 'tpl-demo-incarico-vendita',
+        signatories: [],
+        ...mandate,
+        id: generateUniqueId('mand'),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        practiceId: mandate.practiceId,
+      } as Mandate;
+      return [...previous, newMandate];
     });
   }, []);
 
   const updateSigningProcess = useCallback((process: Partial<SigningProcess> & { practiceId: string }) => {
-    setSigningProcesses((prev) => {
-      const existing = prev.find((p) => p.practiceId === process.practiceId && (p.documentId === process.documentId || !process.documentId));
+    setSigningProcesses((previous) => {
+      const existing = previous.find(
+        (item) => item.practiceId === process.practiceId && (item.documentId === process.documentId || !process.documentId)
+      );
       if (existing) {
-        return prev.map((p) => (p.id === existing.id ? { ...p, ...process } : p));
-      } else {
-        const newProcess: SigningProcess = {
-          documentId: '',
-          mode: 'Contemporanea',
-          status: 'Da inviare',
-          signatories: [],
-          ...process,
-          id: generateUniqueId('sign-'),
-          createdAt: new Date().toISOString(),
-          practiceId: process.practiceId,
-        } as SigningProcess;
-        return [...prev, newProcess];
+        return previous.map((item) => (item.id === existing.id ? { ...item, ...process } : item));
       }
+      const newProcess: SigningProcess = {
+        documentId: '',
+        mode: 'Contemporanea',
+        status: 'Da inviare',
+        signatories: [],
+        provider: 'mock',
+        ...process,
+        id: generateUniqueId('sign'),
+        createdAt: new Date().toISOString(),
+        practiceId: process.practiceId,
+      } as SigningProcess;
+      return [...previous, newProcess];
     });
   }, []);
 
   const updateAmlDossier = useCallback((dossier: Partial<AmlDossier> & { practiceId: string }) => {
-    setAmlDossiers((prev) => {
-      const existing = prev.find((a) => a.practiceId === dossier.practiceId);
+    setAmlDossiers((previous) => {
+      const existing = previous.find((item) => item.practiceId === dossier.practiceId);
       if (existing) {
-        return prev.map((a) => (a.practiceId === dossier.practiceId ? {
-          ...a,
-          ...dossier,
-          sections: { ...a.sections, ...(dossier.sections || {}) },
-          riskAssessment: { ...a.riskAssessment, ...(dossier.riskAssessment || {}) },
-        } : a));
-      } else {
-        const newDossier: AmlDossier = {
-          status: 'Da iniziare',
-          sections: {
-            soggetti: false,
-            identificazione: false,
-            relazioni: false,
-            operazione: false,
-            origineFondi: false,
-            valutazione: false,
-            ...(dossier.sections || {})
-          },
-          riskAssessment: {
-            level: '',
-            notes: '',
-            date: '',
-            ...(dossier.riskAssessment || {})
-          },
-          ...dossier,
-          id: generateUniqueId('aml-'),
-          practiceId: dossier.practiceId,
-        } as AmlDossier;
-        return [...prev, newDossier];
+        return previous.map((item) =>
+          item.practiceId === dossier.practiceId
+            ? {
+                ...item,
+                ...dossier,
+                sections: { ...item.sections, ...(dossier.sections || {}) },
+                riskAssessment: { ...item.riskAssessment, ...(dossier.riskAssessment || {}) },
+              }
+            : item
+        );
       }
+      const newDossier: AmlDossier = {
+        status: 'Da iniziare',
+        sections: {
+          soggetti: false,
+          identificazione: false,
+          relazioni: false,
+          operazione: false,
+          origineFondi: false,
+          valutazione: false,
+          ...(dossier.sections || {}),
+        },
+        riskAssessment: {
+          level: '',
+          notes: '',
+          date: '',
+          ...(dossier.riskAssessment || {}),
+        },
+        ...dossier,
+        id: generateUniqueId('aml'),
+        practiceId: dossier.practiceId,
+      } as AmlDossier;
+      return [...previous, newDossier];
     });
   }, []);
 
-  // Open Practice with direct focus
-  const openPracticeDetail = (
-    practiceId: string,
-    focusSection?: string,
-    subTab?: 'dettagli' | 'documenti' | 'appuntamenti' | 'note' | 'aml'
-  ) => {
+  const openPracticeDetail = (practiceId: string, focusSection?: string, subTab?: PracticeSubTab) => {
     setSelectedPracticeId(practiceId);
-    if (subTab) {
-      setPracticeActiveSubTab(subTab);
-    } else {
-      setPracticeActiveSubTab('dettagli');
-    }
-    if (focusSection) {
-      setFocusedPracticeSection(focusSection);
-    } else {
-      setFocusedPracticeSection(null);
-    }
+    setPracticeActiveSubTab(subTab || 'dettagli');
+    setFocusedPracticeSection(focusSection || null);
     setActiveTab('pratiche');
   };
-
   const openOpportunityDetail = (opportunityId: string) => {
     setSelectedOpportunityId(opportunityId);
     setActiveTab('opportunita');
   };
-
   const closePracticeDetail = () => {
     setSelectedPracticeId(null);
     setFocusedPracticeSection(null);
     setActiveTab('pratiche');
   };
-
   const closeOpportunityDetail = () => {
     setSelectedOpportunityId(null);
     setActiveTab('opportunita');
   };
-
-  const openNewPracticeWizard = (presetMode?: 'opportunity' | 'existing_client' | 'new_client', sourceId?: string) => {
+  const openNewPracticeWizard = (
+    presetMode?: 'opportunity' | 'existing_client' | 'new_client',
+    sourceId?: string
+  ) => {
     setWizardPreset(presetMode ? { mode: presetMode, sourceId } : null);
     setActiveTab('nuova_pratica');
   };
 
-  // Convert Opportunity to Practice (The Core Interaction!)
+  const inferDocumentCategory = (label: string): DocumentItem['category'] => {
+    if (/identit|fiscale|cliente/i.test(label)) return 'cliente';
+    if (/incarico|mandato/i.test(label)) return 'incarico';
+    if (/antiricic|adeguata verifica/i.test(label)) return 'antiriciclaggio';
+    return 'immobile';
+  };
+
+  const configuredChecklistDocuments = (practiceId: string, availableDocLabels: string[] = []): DocumentItem[] => {
+    const labels = agencyProfile.workPreferences.defaultDocs.length
+      ? agencyProfile.workPreferences.defaultDocs
+      : DEFAULT_AGENCY_PROFILE.workPreferences.defaultDocs;
+    return labels.map((label) => {
+      const available = availableDocLabels.some(
+        (candidate) => label.toLowerCase().includes(candidate.toLowerCase()) || candidate.toLowerCase().includes(label.toLowerCase())
+      );
+      return {
+        id: generateUniqueId('doc'),
+        practiceId,
+        category: inferDocumentCategory(label),
+        label,
+        subtitle: 'Checklist configurata dall’agenzia',
+        status: available ? 'Disponibile' : 'Da recuperare',
+        isMissingRequired: !available,
+      };
+    });
+  };
+
   const convertOpportunityToPractice = (opportunityId: string): string => {
-    const opp = opportunities.find((o) => o.id === opportunityId);
-    if (!opp) return '';
+    const opportunity = opportunities.find((item) => item.id === opportunityId);
+    if (!opportunity) return '';
+
+    const alreadyConverted = practices.find((practice) => practice.sourceOpportunityId === opportunity.id);
+    if (alreadyConverted) {
+      openPracticeDetail(alreadyConverted.id);
+      return alreadyConverted.id;
+    }
 
     const newPracticeId = generateUniqueId('prat');
-    const nextSeq = practices.length + 90;
-    const practiceCode = `PRT-2023-0${nextSeq}`;
-
-    // Create Initial Documents based on Opportunity declared documents
-    const createdDocs: DocumentItem[] = [
-      {
-        id: generateUniqueId('doc'),
-        practiceId: newPracticeId,
-        category: 'immobile',
-        label: 'APE',
-        subtitle: 'Attestato Prestazione Energetica',
-        status: opp.declaredDocuments.find((d) => d.label.includes('APE'))?.declaredPresent
-          ? 'Disponibile'
-          : 'Da recuperare',
-        isMissingRequired: true,
-      },
-      {
-        id: generateUniqueId('doc'),
-        practiceId: newPracticeId,
-        category: 'immobile',
-        label: 'Planimetria',
-        subtitle: 'Catastale aggiornata',
-        status: opp.declaredDocuments.find((d) => d.label.includes('Planimetria'))?.declaredPresent
-          ? 'Disponibile'
-          : 'Da recuperare',
-        isMissingRequired: true,
-      },
-      {
-        id: generateUniqueId('doc'),
-        practiceId: newPracticeId,
-        category: 'immobile',
-        label: 'Atto di Provenienza',
-        subtitle: 'Rogito precedente',
-        status: opp.declaredDocuments.find((d) => d.label.includes('Atto'))?.declaredPresent
-          ? 'Disponibile'
-          : 'Da recuperare',
-        isMissingRequired: true,
-      },
-      {
-        id: generateUniqueId('doc'),
-        practiceId: newPracticeId,
-        category: 'cliente',
-        label: 'Carta d identità',
-        subtitle: 'Documento proprietario',
-        status: 'Disponibile',
-        mockFileName: 'Documento_Identita_Venditore.pdf',
-        updatedAt: 'Oggi',
-      },
-      {
-        id: generateUniqueId('doc'),
-        practiceId: newPracticeId,
-        category: 'cliente',
-        label: 'Codice Fiscale',
-        subtitle: 'Tessera sanitaria',
-        status: 'Disponibile',
-        mockFileName: 'Codice_Fiscale.pdf',
-        updatedAt: 'Oggi',
-      },
-      {
-        id: generateUniqueId('doc'),
-        practiceId: newPracticeId,
-        category: 'incarico',
-        label: 'Mandato di Vendita',
-        subtitle: 'Bozza Mandato Ready',
-        status: 'Da verificare',
-        isMissingRequired: true,
-      },
-      {
-        id: generateUniqueId('doc'),
-        practiceId: newPracticeId,
-        category: 'antiriciclaggio',
-        label: 'Modulo Adeguata Verifica',
-        subtitle: 'In attesa di firma',
-        status: 'In attesa',
-        isMissingRequired: false,
-      },
-    ];
+    const year = new Date().getFullYear();
+    const practiceCode = `PRT-${year}-${String(practices.length + 1).padStart(4, '0')}`;
+    const availableLabels = opportunity.declaredDocuments
+      .filter((document) => document.declaredPresent)
+      .map((document) => document.label);
+    const createdDocs = configuredChecklistDocuments(newPracticeId, availableLabels);
 
     const newPractice: Practice = {
       id: newPracticeId,
       code: practiceCode,
-      clientId: opp.clientId,
-      propertyId: opp.propertyId,
-      sourceOpportunityId: opp.id,
+      clientId: opportunity.clientId,
+      propertyId: opportunity.propertyId,
+      sourceOpportunityId: opportunity.id,
       practiceType: 'Compravendita',
       status: 'In corso',
-      mandateStatus: 'da_firmare',
-      amlStatus: 'in_corso',
-      documentStatus: 'in_corso',
+      mandateStatus: 'da_preparare',
+      amlStatus: 'non_avviato',
+      documentStatus: createdDocs.every((document) => !document.isMissingRequired) ? 'pronto' : 'in_corso',
       proposalStatus: 'nessuna',
       openedDate: 'Oggi',
       assignedAgent: {
-        name: 'Anna Morante',
-        initials: 'AM',
+        name: agencyProfile.agentName,
+        initials: getAgentInitials(agencyProfile.agentName),
       },
-      estimatedValue: opp.estimatedPrice || 390000,
+      estimatedValue: 0,
       nextAction: {
-        title: 'Firma Incarico di Vendita',
-        description: 'Bozza pronta. Raccogliere firma digitale o autografa del proprietario per avviare la promozione.',
-        ctaText: 'Prepara per la Firma',
+        title: 'Compila incarico',
+        description: 'Cliente e immobile sono stati trasferiti senza duplicazioni.',
+        ctaText: 'Compila incarico',
         targetSection: 'incarico',
       },
       amlWorkflow: {
-        clienteIdentificato: true,
-        informazioniRaccolte: true,
+        clienteIdentificato: false,
+        informazioniRaccolte: false,
         titolareEffettivoVerificato: false,
         fascicoloCompleto: false,
-        notes: `Importato da Opportunità ${opp.id}. Briefing: ${opp.briefing}`,
+        notes: `Importato da Opportunità ${opportunity.id}. Briefing: ${opportunity.briefing}`,
       },
       notes: [
         {
@@ -819,68 +719,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           date: 'Oggi',
           time: 'Adesso',
           author: 'Sistema Mandato Ready',
-          text: `Pratica convertita dall'opportunità. Briefing importato: "${opp.briefing}"`,
+          text: `Pratica convertita dall'opportunità. Briefing importato: “${opportunity.briefing}”`,
         },
       ],
       timeline: [
-        { id: generateUniqueId('t'), date: 'Oggi', title: 'Acquisizione da Opportunità', completed: true },
-        { id: generateUniqueId('t'), date: 'Oggi', title: 'Valutazione e Dati Importati', completed: true },
-        { id: generateUniqueId('t'), date: 'Oggi', title: 'Firma Incarico', completed: false, current: true },
-        { id: generateUniqueId('t'), date: 'In attesa', title: 'Pubblicazione annuncio', completed: false },
+        { id: generateUniqueId('timeline'), date: 'Oggi', title: 'Acquisizione da Opportunità', completed: true },
+        { id: generateUniqueId('timeline'), date: 'Oggi', title: 'Preparazione incarico', completed: false, current: true },
       ],
     };
 
-    // Create Initial Task for Oggi
-    const client = clients.find((c) => c.id === opp.clientId);
-    const prop = properties.find((p) => p.id === opp.propertyId);
-    const clientName = client ? `${client.firstName} ${client.lastName}` : 'Cliente';
-    const propLocation = prop ? `${prop.address} · ${prop.municipality}` : 'Immobile';
-
-    const newTask: Task = {
-      id: generateUniqueId('task'),
-      practiceId: newPracticeId,
-      clientId: opp.clientId,
-      propertyId: opp.propertyId,
-      title: `${clientName} | ${propLocation}`,
-      subtitle: 'Incarico da completare e firmare',
-      time: 'Entro 24 ore',
-      urgency: 'Nuova Acquisizione',
-      priority: 'high',
-      status: 'pending',
-      actionType: 'COMPLETA',
-      targetSection: 'incarico',
-    };
-
-    // Update Opportunity Status to converted
-    setOpportunities((prev) =>
-      prev.map((o) => (o.id === opp.id ? { ...o, status: 'converted' } : o))
+    setOpportunities((previous) =>
+      previous.map((item) => (item.id === opportunity.id ? { ...item, status: 'converted' } : item))
     );
-
-    // Save practice, documents, tasks
-    setPractices((prev) => [newPractice, ...prev]);
-    setDocuments((prev) => [...createdDocs, ...prev]);
-    setTasks((prev) => [newTask, ...prev]);
-
-    // Add initial deadline
-    const newDeadline: Deadline = {
-      id: generateUniqueId('dead'),
-      practiceId: newPracticeId,
-      title: 'Firma Incarico di Mediazione',
-      dueDate: 'Entro domani, ore 18:00',
-      group: 'oggi',
-      completed: false,
-      priority: 'high',
-    };
-    setDeadlines((prev) => [newDeadline, ...prev]);
-
-    // Select and return
-    setSelectedPracticeId(newPracticeId);
-    setPracticeActiveSubTab('dettagli');
-    setActiveTab('pratiche');
+    setPractices((previous) => [newPractice, ...previous]);
+    setDocuments((previous) => [...createdDocs, ...previous]);
+    setDeadlines((previous) => [
+      {
+        id: generateUniqueId('deadline'),
+        practiceId: newPracticeId,
+        title: 'Preparare incarico di mediazione',
+        dueDate: 'Entro domani, ore 18:00',
+        group: 'oggi',
+        completed: false,
+        priority: 'high',
+      },
+      ...previous,
+    ]);
+    openPracticeDetail(newPracticeId);
     return newPracticeId;
   };
 
-  // Create Practice from Wizard (Manual Flow)
   const createPracticeFromWizard = (data: {
     clientId: string;
     propertyId: string;
@@ -888,61 +756,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     availableDocLabels?: string[];
   }): string => {
     const newPracticeId = generateUniqueId('prat');
-    const nextSeq = practices.length + 95;
-    const practiceCode = `PRT-2023-0${nextSeq}`;
-
-    const client = clients.find((c) => c.id === data.clientId);
-    const prop = properties.find((p) => p.id === data.propertyId);
-
-    const available = data.availableDocLabels || [];
-
-    const createdDocs: DocumentItem[] = [
-      {
-        id: generateUniqueId('doc'),
-        practiceId: newPracticeId,
-        category: 'immobile',
-        label: 'Planimetria',
-        subtitle: 'Catastale aggiornata',
-        status: available.includes('Planimetria') ? 'Disponibile' : 'Da recuperare',
-        isMissingRequired: !available.includes('Planimetria'),
-      },
-      {
-        id: generateUniqueId('doc'),
-        practiceId: newPracticeId,
-        category: 'immobile',
-        label: 'APE',
-        subtitle: 'Attestato Prestazione Energetica',
-        status: available.includes('APE') ? 'Disponibile' : 'Da recuperare',
-        isMissingRequired: true,
-      },
-      {
-        id: generateUniqueId('doc'),
-        practiceId: newPracticeId,
-        category: 'immobile',
-        label: 'Atto di Provenienza',
-        subtitle: 'Rogito precedente',
-        status: available.includes('Atto') ? 'Disponibile' : 'Da recuperare',
-        isMissingRequired: true,
-      },
-      {
-        id: generateUniqueId('doc'),
-        practiceId: newPracticeId,
-        category: 'cliente',
-        label: 'Carta d identità',
-        subtitle: 'Documento d identità in corso di validità',
-        status: available.includes('Carta identità') ? 'Disponibile' : 'Disponibile',
-        mockFileName: 'CI_Cliente.pdf',
-      },
-      {
-        id: generateUniqueId('doc'),
-        practiceId: newPracticeId,
-        category: 'incarico',
-        label: 'Mandato di Mediazione',
-        subtitle: 'Incarico in esclusiva',
-        status: 'Da verificare',
-        isMissingRequired: true,
-      },
-    ];
+    const year = new Date().getFullYear();
+    const practiceCode = `PRT-${year}-${String(practices.length + 1).padStart(4, '0')}`;
+    const createdDocs = configuredChecklistDocuments(newPracticeId, data.availableDocLabels || []);
 
     const newPractice: Practice = {
       id: newPracticeId,
@@ -953,22 +769,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       status: 'In corso',
       mandateStatus: 'da_preparare',
       amlStatus: 'non_avviato',
-      documentStatus: 'in_corso',
+      documentStatus: createdDocs.every((document) => !document.isMissingRequired) ? 'pronto' : 'in_corso',
       proposalStatus: 'nessuna',
       openedDate: 'Oggi',
       assignedAgent: {
-        name: 'Anna Morante',
-        initials: 'AM',
+        name: agencyProfile.agentName,
+        initials: getAgentInitials(agencyProfile.agentName),
       },
-      estimatedValue: prop?.estimatedValue || 250000,
+      estimatedValue: 0,
       nextAction: {
-        title: 'Verifica documenti caricati',
-        description: 'Completa la raccolta dei documenti mancanti per sbloccare la firma dell incarico.',
-        ctaText: 'Apri Documenti',
-        targetSection: 'documenti',
+        title: 'Compila incarico',
+        description: 'Cliente e immobile sono collegati. Completa ora l’incarico.',
+        ctaText: 'Compila incarico',
+        targetSection: 'incarico',
       },
       amlWorkflow: {
-        clienteIdentificato: true,
+        clienteIdentificato: false,
         informazioniRaccolte: false,
         titolareEffettivoVerificato: false,
         fascicoloCompleto: false,
@@ -978,101 +794,63 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           id: generateUniqueId('note'),
           date: 'Oggi',
           time: 'Adesso',
-          author: 'Anna Morante',
+          author: agencyProfile.agentName,
           text: 'Nuova pratica creata da procedura guidata.',
         },
       ],
       timeline: [
-        { id: generateUniqueId('t'), date: 'Oggi', title: 'Fascicolo Aperto', completed: true, current: true },
-        { id: generateUniqueId('t'), date: 'In corso', title: 'Raccolta Documentale', completed: false },
+        { id: generateUniqueId('timeline'), date: 'Oggi', title: 'Fascicolo aperto', completed: true, current: true },
+        { id: generateUniqueId('timeline'), date: 'In corso', title: 'Preparazione incarico', completed: false },
       ],
     };
 
-    const clientName = client ? `${client.firstName} ${client.lastName}` : 'Cliente';
-    const propLocation = prop ? `${prop.address} · ${prop.municipality}` : 'Immobile';
-
-    const newTask: Task = {
-      id: generateUniqueId('task'),
-      practiceId: newPracticeId,
-      clientId: data.clientId,
-      propertyId: data.propertyId,
-      title: `${clientName} | ${propLocation}`,
-      subtitle: 'Completare raccolta documenti',
-      time: 'Entro 48 ore',
-      priority: 'medium',
-      status: 'pending',
-      actionType: 'COMPLETA',
-      targetSection: 'documenti',
-    };
-
-    setPractices((prev) => [newPractice, ...prev]);
-    setDocuments((prev) => [...createdDocs, ...prev]);
-    setTasks((prev) => [newTask, ...prev]);
-
-    setSelectedPracticeId(newPracticeId);
-    setPracticeActiveSubTab('dettagli');
-    setActiveTab('pratiche');
+    setPractices((previous) => [newPractice, ...previous]);
+    setDocuments((previous) => [...createdDocs, ...previous]);
+    openPracticeDetail(newPracticeId);
     return newPracticeId;
   };
 
-  // Upload or Change Status of a Document
-  const uploadOrMarkDocument = (documentId: string, status: DocumentStatus = 'Disponibile', fileName?: string) => {
-    let affectedPracticeId = '';
+  const uploadOrMarkDocument = (
+    documentId: string,
+    status: DocumentStatus = 'Disponibile',
+    fileName?: string
+  ) => {
+    const existingDocument = documents.find((document) => document.id === documentId);
+    if (!existingDocument) return;
+    const affectedPracticeId = existingDocument.practiceId;
+    const ready = isDocumentReady(status);
 
-    setDocuments((prev) =>
-      prev.map((doc) => {
-        if (doc.id === documentId) {
-          affectedPracticeId = doc.practiceId;
-          return {
-            ...doc,
-            status,
-            mockFileName: fileName || doc.mockFileName || `${doc.label.replace(/\s+/g, '_')}_Caricato.pdf`,
-            updatedAt: 'Oggi',
-            isMissingRequired: status !== 'Disponibile',
-          };
-        }
-        return doc;
-      })
+    setDocuments((previous) =>
+      previous.map((document) =>
+        document.id === documentId
+          ? {
+              ...document,
+              status,
+              mockFileName:
+                fileName || document.mockFileName || `${document.label.replace(/\s+/g, '_')}_Caricato.pdf`,
+              updatedAt: 'Oggi',
+              isMissingRequired: !ready,
+            }
+          : document
+      )
     );
 
-    if (affectedPracticeId) {
-      // Check if this was the document requested by nextAction or task
-      setPractices((prev) =>
-        prev.map((p) => {
-          if (p.id === affectedPracticeId) {
-            // Check remaining missing docs
-            const currentPracticeDocs = documents.map((d) =>
-              d.id === documentId ? { ...d, status, isMissingRequired: status !== 'Disponibile' } : d
-            ).filter((d) => d.practiceId === affectedPracticeId);
-
-            const missingRequired = currentPracticeDocs.filter((d) => d.isMissingRequired && d.status !== 'Disponibile');
-
-            let updatedNextAction = p.nextAction;
-            if (missingRequired.length === 0) {
-              updatedNextAction = {
-                title: 'Tutti i documenti base pronti',
-                description: 'La documentazione essenziale è completa. Puoi procedere alla firma digitale dell incarico.',
-                ctaText: 'Firma Incarico',
-                targetSection: 'incarico',
-              };
-            }
-
-            return {
-              ...p,
-              documentStatus: missingRequired.length === 0 ? 'pronto' : 'in_corso',
-              nextAction: updatedNextAction,
-            };
-          }
-          return p;
-        })
-      );
-
-      // Add a note
-      const doc = documents.find((d) => d.id === documentId);
-      if (doc) {
-        addPracticeNote(affectedPracticeId, `Documento aggiornato: "${doc.label}" contrassegnato come ${status}.`);
-      }
-    }
+    const currentPracticeDocs = documents
+      .map((document) =>
+        document.id === documentId ? { ...document, status, isMissingRequired: !ready } : document
+      )
+      .filter((document) => document.practiceId === affectedPracticeId);
+    const missingRequired = currentPracticeDocs.some(
+      (document) => document.isMissingRequired && !isDocumentReady(document.status)
+    );
+    setPractices((previous) =>
+      previous.map((practice) =>
+        practice.id === affectedPracticeId
+          ? { ...practice, documentStatus: missingRequired ? 'in_corso' : 'pronto' }
+          : practice
+      )
+    );
+    addPracticeNote(affectedPracticeId, `Documento aggiornato: “${existingDocument.label}” → ${status}.`);
   };
 
   const addDocumentToPractice = (
@@ -1082,24 +860,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     subtitle: string,
     status: DocumentStatus
   ) => {
-    const newDoc: DocumentItem = {
+    const ready = isDocumentReady(status);
+    const newDocument: DocumentItem = {
       id: generateUniqueId('doc'),
       practiceId,
       category,
       label,
       subtitle,
       status,
-      mockFileName: status === 'Disponibile' ? `${label.replace(/\s+/g, '_')}.pdf` : undefined,
-      updatedAt: status === 'Disponibile' ? 'Oggi' : undefined,
-      isMissingRequired: status !== 'Disponibile',
+      mockFileName: ready ? `${label.replace(/\s+/g, '_')}.pdf` : undefined,
+      updatedAt: ready ? 'Oggi' : undefined,
+      isMissingRequired: !ready,
     };
-    setDocuments((prev) => [...prev, newDoc]);
-    addPracticeNote(practiceId, `Aggiunto nuovo documento a fascicolo: "${label}".`);
+    setDocuments((previous) => [...previous, newDocument]);
+    addPracticeNote(practiceId, `Aggiunto nuovo documento al fascicolo: “${label}”.`);
   };
 
   const updatePractice = (practiceId: string, updates: Partial<Practice>) => {
-    setPractices((prev) =>
-      prev.map((p) => (p.id === practiceId ? { ...p, ...updates } : p))
+    setPractices((previous) =>
+      previous.map((practice) => (practice.id === practiceId ? { ...practice, ...updates } : practice))
     );
   };
 
@@ -1107,39 +886,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newNote: PracticeNote = {
       id: generateUniqueId('note'),
       date: 'Oggi',
-      time: '12:00',
-      author: 'Anna Morante',
+      time: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }),
+      author: agencyProfile.agentName,
       text,
     };
-    setPractices((prev) =>
-      prev.map((p) => (p.id === practiceId ? { ...p, notes: [newNote, ...p.notes] } : p))
+    setPractices((previous) =>
+      previous.map((practice) =>
+        practice.id === practiceId ? { ...practice, notes: [newNote, ...practice.notes] } : practice
+      )
     );
   };
 
   const updateAmlWorkflow = (practiceId: string, updates: Partial<Practice['amlWorkflow']>) => {
-    setPractices((prev) =>
-      prev.map((p) => {
-        if (p.id === practiceId) {
-          const newAml = { ...p.amlWorkflow, ...updates };
-          const allDone =
-            newAml.clienteIdentificato &&
-            newAml.informazioniRaccolte &&
-            newAml.titolareEffettivoVerificato &&
-            newAml.fascicoloCompleto;
-          return {
-            ...p,
-            amlWorkflow: newAml,
-            amlStatus: allDone ? 'completato' : 'in_corso',
-          };
-        }
-        return p;
+    setPractices((previous) =>
+      previous.map((practice) => {
+        if (practice.id !== practiceId) return practice;
+        const amlWorkflow = { ...practice.amlWorkflow, ...updates };
+        const allDone =
+          amlWorkflow.clienteIdentificato &&
+          amlWorkflow.informazioniRaccolte &&
+          amlWorkflow.titolareEffettivoVerificato &&
+          amlWorkflow.fascicoloCompleto;
+        return { ...practice, amlWorkflow, amlStatus: allDone ? 'completato' : 'in_corso' };
       })
     );
   };
 
   const completeTask = (taskId: string) => {
-    setTasks((prev) =>
-      prev.map((t) => (t.id === taskId ? { ...t, status: 'completed' } : t))
+    setTasks((previous) =>
+      previous.map((task) => (task.id === taskId ? { ...task, status: 'completed' } : task))
     );
   };
 
@@ -1150,50 +925,64 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     group: Deadline['group'],
     priority: 'high' | 'normal' = 'normal'
   ) => {
-    const newDead: Deadline = {
-      id: generateUniqueId('dead'),
-      practiceId,
-      title,
-      dueDate,
-      group,
-      completed: false,
-      priority,
-    };
-    setDeadlines((prev) => [newDead, ...prev]);
+    setDeadlines((previous) => [
+      {
+        id: generateUniqueId('deadline'),
+        practiceId,
+        title,
+        dueDate,
+        group,
+        completed: false,
+        priority,
+      },
+      ...previous,
+    ]);
   };
 
   const toggleDeadline = (deadlineId: string) => {
-    setDeadlines((prev) =>
-      prev.map((d) => (d.id === deadlineId ? { ...d, completed: !d.completed } : d))
+    setDeadlines((previous) =>
+      previous.map((deadline) =>
+        deadline.id === deadlineId ? { ...deadline, completed: !deadline.completed } : deadline
+      )
     );
   };
 
   const addNewClient = (clientData: Omit<Client, 'id' | 'createdAt'>): Client => {
-    const newClient: Client = {
-      ...clientData,
-      id: generateUniqueId('cli'),
-      createdAt: 'Oggi',
-    };
-    setClients((prev) => [newClient, ...prev]);
+    const newClient: Client = { ...clientData, id: generateUniqueId('cli'), createdAt: 'Oggi' };
+    setClients((previous) => [newClient, ...previous]);
     return newClient;
   };
 
-  const addNewProperty = (propertyData: Omit<Property, 'id'>): Property => {
-    const newProp: Property = {
-      ...propertyData,
-      id: generateUniqueId('prop'),
-    };
-    setProperties((prev) => [newProp, ...prev]);
-    return newProp;
+  const updateClient = (
+    clientId: string,
+    updates: Partial<Omit<Client, 'id' | 'createdAt'>>
+  ): Client | undefined => {
+    const existing = clients.find((client) => client.id === clientId);
+    if (!existing) return undefined;
+    const updated: Client = { ...existing, ...updates };
+    setClients((previous) => previous.map((client) => (client.id === clientId ? updated : client)));
+    return updated;
   };
 
-  // Reset to initial demo seed
+  const addNewProperty = (propertyData: Omit<Property, 'id'>): Property => {
+    const newProperty: Property = { ...propertyData, id: generateUniqueId('prop') };
+    setProperties((previous) => [newProperty, ...previous]);
+    return newProperty;
+  };
+
+  const updateProperty = (
+    propertyId: string,
+    updates: Partial<Omit<Property, 'id'>>
+  ): Property | undefined => {
+    const existing = properties.find((property) => property.id === propertyId);
+    if (!existing) return undefined;
+    const updated: Property = { ...existing, ...updates };
+    setProperties((previous) => previous.map((property) => (property.id === propertyId ? updated : property)));
+    return updated;
+  };
+
   const resetDemoData = () => {
-    try {
-      localStorage.clear();
-    } catch {
-      // fallback
-    }
+    prototypeStorage.clearNamespace();
     setClients(INITIAL_CLIENTS);
     setProperties(INITIAL_PROPERTIES);
     setOpportunities(INITIAL_OPPORTUNITIES);
@@ -1203,6 +992,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setDeadlines(INITIAL_DEADLINES);
     setAppointments(INITIAL_APPOINTMENTS);
     setWaitingItems(INITIAL_WAITING_ITEMS);
+    setMandates([]);
+    setSigningProcesses([]);
+    setAmlDossiers([]);
     setSelectedPracticeId('prat-1');
     setSelectedOpportunityId('opp-1');
     setActiveTab('oggi');
@@ -1210,9 +1002,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const seedNewOpportunity = () => {
     const newClientId = generateUniqueId('cli');
-    const newPropId = generateUniqueId('prop');
-    const newOppId = generateUniqueId('opp');
-
+    const newPropertyId = generateUniqueId('prop');
+    const newOpportunityId = generateUniqueId('opp');
     const newClient: Client = {
       id: newClientId,
       firstName: 'Matteo',
@@ -1226,9 +1017,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       notes: 'Architetto, vende appartamento ristrutturato di recente.',
       createdAt: 'Oggi',
     };
-
-    const newProp: Property = {
-      id: newPropId,
+    const newProperty: Property = {
+      id: newPropertyId,
       address: 'Corso Umberto I 55',
       civicNumber: '55',
       municipality: 'Cinisi',
@@ -1239,45 +1029,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       rooms: 4,
       bathrooms: 2,
       floor: '2° piano',
-      estimatedValue: 240000,
+      askingPrice: 240000,
       owners: [newClientId],
       energyClass: 'B',
       notes: 'Terrazzo panoramico a livello di 40 m².',
     };
-
-    const newOpp: Opportunity = {
-      id: newOppId,
+    const newOpportunity: Opportunity = {
+      id: newOpportunityId,
       clientId: newClientId,
-      propertyId: newPropId,
+      propertyId: newPropertyId,
       sellerIntent: 'Alto',
       readiness: 78,
       priority: 'HOT',
       sellingTimeframe: 'Entro 2 mesi',
       motivation: 'Acquisto nuova prima casa a Palermo',
       briefing:
-        'Proprietario qualificato. Ha già tutti i titoli edilizi in regola e le certificazioni impianti. Cerca agenzia per vendita rapida con acquirenti referenziati.',
+        'Proprietario qualificato. Ha già titoli edilizi e certificazioni impianti dichiarati disponibili.',
       appointmentDate: 'Oggi, ore 18:30',
       declaredDocuments: [
-        { id: generateUniqueId('dd'), label: 'Atto di provenienza', category: 'immobile', declaredPresent: true },
-        { id: generateUniqueId('dd'), label: 'Planimetria Catastale', category: 'immobile', declaredPresent: true },
-        { id: generateUniqueId('dd'), label: 'APE Classe B', category: 'immobile', declaredPresent: true },
+        { id: generateUniqueId('declared'), label: 'Atto di provenienza', category: 'immobile', declaredPresent: true },
+        { id: generateUniqueId('declared'), label: 'Planimetria Catastale', category: 'immobile', declaredPresent: true },
+        { id: generateUniqueId('declared'), label: 'APE Classe B', category: 'immobile', declaredPresent: true },
       ],
       recommendedAction: 'Contattare oggi per conferma appuntamento',
       nextAction: 'Preparare proposta di mandato in esclusiva',
       status: 'active',
       estimatedPrice: 240000,
       preparationAdvice: {
-        sintesi: 'Opportunità ad alto potenziale di chiusura rapida.',
+        sintesi: 'Opportunità ad alto potenziale di conversione.',
         daApprofondire: ['Eventuale prelazione o servitù di passaggio su terrazzo'],
         domandeConsigliate: ['Ha già concordato la caparra per il nuovo acquisto a Palermo?'],
         prossimaAzione: 'Presentare piano di marketing e valorizzazione fotografica.',
       },
     };
-
-    setClients((prev) => [newClient, ...prev]);
-    setProperties((prev) => [newProp, ...prev]);
-    setOpportunities((prev) => [newOpp, ...prev]);
-    setSelectedOpportunityId(newOppId);
+    setClients((previous) => [newClient, ...previous]);
+    setProperties((previous) => [newProperty, ...previous]);
+    setOpportunities((previous) => [newOpportunity, ...previous]);
+    setSelectedOpportunityId(newOpportunityId);
     setActiveTab('opportunita');
   };
 
@@ -1333,7 +1121,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addDeadline,
         toggleDeadline,
         addNewClient,
+        updateClient,
         addNewProperty,
+        updateProperty,
         openPracticeDetail,
         closePracticeDetail,
         openOpportunityDetail,
@@ -1372,10 +1162,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         isNewClientModalOpen,
         newClientModalState,
         openNewClientModal,
+        openEditClientModal,
         closeNewClientModal,
         isNewPropertyModalOpen,
         newPropertyModalState,
         openNewPropertyModal,
+        openEditPropertyModal,
         closeNewPropertyModal,
       }}
     >
@@ -1386,8 +1178,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
 export const useApp = (): AppContextType => {
   const context = useContext(AppContext);
-  if (!context) {
-    throw new Error('useApp must be used within an AppProvider');
-  }
+  if (!context) throw new Error('useApp must be used within an AppProvider');
   return context;
 };
